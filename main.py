@@ -49,12 +49,13 @@ def salvar_conversa_no_banco(numero_cliente, mensagem, nome_cliente, thread_id=N
         print(f"❌ Erro ao salvar conversa no banco: {e}")
         db_conn.rollback()
 
+# Substitua a função identificar_cliente inteira por esta versão final
 @functions_framework.http
 def identificar_cliente(request):
     """Função "canivete suíço" que lida com diferentes ações do Dialogflow."""
     request_json = request.get_json(silent=True)
     tag = request_json.get('fulfillmentInfo', {}).get('tag', '')
-
+    
     numero_cliente_com_prefixo = request_json.get('sessionInfo', {}).get('session', '').split('/')[-1]
     numero_cliente = ''.join(filter(str.isdigit, numero_cliente_com_prefixo))
     if numero_cliente.startswith('55'):
@@ -82,11 +83,14 @@ def identificar_cliente(request):
     # AÇÃO 2: Salvar o nome e fazer a próxima pergunta
     elif tag == 'salvar_nome_e_perguntar_produto':
         parametros = request_json.get('sessionInfo', {}).get('parameters', {})
-        nome_cliente = parametros.get('person', {}).get('resolvedValue', 'Cliente')
-
+        # LINHA CORRIGIDA ABAIXO:
+        nome_cliente = parametros.get('texto_capturado', 'Cliente')
+        
+        # Salva a informação no banco
         mensagem_completa = f"O cliente informou o nome: {nome_cliente}"
         salvar_conversa_no_banco(numero_cliente, mensagem_completa, nome_cliente)
 
+        # Define a próxima pergunta do fluxo
         texto_resposta = (
             f"Prazer em te conhecer, {nome_cliente}! ✨\n"
             "Pra gente começar, me diz com o que você precisa de ajuda hoje:\n\n"
