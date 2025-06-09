@@ -84,7 +84,7 @@ def identificar_cliente(request):
     elif tag == 'salvar_nome_e_perguntar_produto':
         parametros = request_json.get('sessionInfo', {}).get('parameters', {})
         # LINHA CORRIGIDA ABAIXO:
-        nome_cliente = parametros.get('texto_capturado', 'Cliente')
+        nome_cliente = parametros.get('any', 'Cliente')
         
         # Salva a informação no banco
         mensagem_completa = f"O cliente informou o nome: {nome_cliente}"
