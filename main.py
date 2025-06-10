@@ -85,7 +85,7 @@ def identificar_cliente(request):
 
     # AÇÃO 2: Salvar o nome e fazer a próxima pergunta
     elif tag == 'salvar_nome_e_perguntar_produto':
-        nome_cliente = parametros.get('person', {}).get('resolvedValue', 'Cliente')
+        nome_cliente = parametros.get('person', {}).get('name', 'Cliente')
         
         mensagem_completa = f"O cliente informou o nome: {nome_cliente}"
         salvar_conversa_no_banco(numero_cliente, mensagem_completa, nome_cliente)
