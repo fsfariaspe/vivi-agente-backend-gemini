@@ -1,7 +1,6 @@
 import os
 import psycopg2
-# ESTA LINHA ESTAVA FALTANDO NO ARQUIVO IMPLANTADO
-import functions_framework 
+import functions_framework
 from flask import jsonify
 
 # --- Configuração do Banco de Dados ---
@@ -14,6 +13,7 @@ DB_PASSWORD = os.getenv("DB_PASSWORD")
 conn = None
 
 def get_db_connection():
+    """Retorna uma conexão com o banco de dados, criando uma se não existir."""
     global conn
     if conn is None or conn.closed:
         try:
@@ -49,12 +49,15 @@ def salvar_conversa_no_banco(numero_cliente, mensagem, nome_cliente, thread_id=N
         print(f"❌ Erro ao salvar conversa no banco: {e}")
         db_conn.rollback()
 
-# Substitua a função identificar_cliente inteira por esta versão final
+# Inicializa a conexão na primeira execução
+get_db_connection()
+
 @functions_framework.http
 def identificar_cliente(request):
     """Função "canivete suíço" que lida com diferentes ações do Dialogflow."""
     request_json = request.get_json(silent=True)
     tag = request_json.get('fulfillmentInfo', {}).get('tag', '')
+    parametros = request_json.get('sessionInfo', {}).get('parameters', {})
     
     numero_cliente_com_prefixo = request_json.get('sessionInfo', {}).get('session', '').split('/')[-1]
     numero_cliente = ''.join(filter(str.isdigit, numero_cliente_com_prefixo))
@@ -82,15 +85,11 @@ def identificar_cliente(request):
 
     # AÇÃO 2: Salvar o nome e fazer a próxima pergunta
     elif tag == 'salvar_nome_e_perguntar_produto':
-        parametros = request_json.get('sessionInfo', {}).get('parameters', {})
-        # LINHA CORRIGIDA ABAIXO:
         nome_cliente = parametros.get('any', 'Cliente')
         
-        # Salva a informação no banco
         mensagem_completa = f"O cliente informou o nome: {nome_cliente}"
         salvar_conversa_no_banco(numero_cliente, mensagem_completa, nome_cliente)
 
-        # Define a próxima pergunta do fluxo
         texto_resposta = (
             f"Prazer em te conhecer, {nome_cliente}! ✨\n"
             "Pra gente começar, me diz com o que você precisa de ajuda hoje:\n\n"
@@ -99,6 +98,27 @@ def identificar_cliente(request):
             "c) Pacote completo (aéreo + hotel + translado)\n"
             "d) Outra opção"
         )
+
+    # AÇÃO 3 (NOVA): Receber dados do formulário e salvar no Notion
+    elif tag == 'salvar_dados_voo_no_notion':
+        print("ℹ️ Recebida tag 'salvar_dados_voo_no_notion'. Extraindo parâmetros do formulário...")
+        
+        # Extrai todos os dados do formulário que o Dialogflow nos enviou
+        dados_viagem = {
+            "origem": parametros.get('origem', ''),
+            "destino": parametros.get('destino', ''),
+            "data_ida": parametros.get('data_ida', {}),
+            "data_volta": parametros.get('data_volta', {}),
+            "passageiros": parametros.get('passageiros', ''),
+            "perfil_viagem": parametros.get('perfil_viagem', ''),
+            "preferencias": parametros.get('preferencias', '')
+        }
+        
+        print(f"✅ Dados extraídos com sucesso: {dados_viagem}")
+
+        # Futuramente, aqui chamaremos a função create_notion_page(dados_viagem)
+        
+        texto_resposta = "Sua solicitação foi registrada com sucesso! Um de nossos especialistas em viagens irá analisar os melhores preços e opções e te enviará a proposta em breve aqui mesmo. Obrigado! 😊"
 
     else:
         texto_resposta = "Desculpe, não entendi o que preciso fazer. Pode tentar de novo?"
