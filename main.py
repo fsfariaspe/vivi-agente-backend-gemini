@@ -83,21 +83,20 @@ def identificar_cliente(request):
         else:
             texto_resposta = "Olá! Eu sou a Vivi, sua consultora de viagens. Como posso te ajudar?"
 
-    # AÇÃO 2: Salvar o nome e fazer a próxima pergunta
+        # AÇÃO 2: Salvar o nome (a resposta de texto foi removida)
     elif tag == 'salvar_nome_e_perguntar_produto':
+        parametros = request_json.get('sessionInfo', {}).get('parameters', {})
         nome_cliente = parametros.get('person', {}).get('name', 'Cliente')
-        
-        mensagem_completa = f"O cliente informou o nome: {nome_cliente}"
+
+        # Salva a informação no banco
+        mensagem_completa = f"O cliente informou o nome: {nome_cliente}. Nome capturado com sucesso."
         salvar_conversa_no_banco(numero_cliente, mensagem_completa, nome_cliente)
 
-        texto_resposta = (
-            f"Prazer em te conhecer, {nome_cliente}! ✨\n"
-            "Pra gente começar, me diz com o que você precisa de ajuda hoje:\n\n"
-            "a) Passagens Aéreas\n"
-            "b) Cruzeiros\n"
-            "c) Pacote completo (aéreo + hotel + translado)\n"
-            "d) Outra opção"
-        )
+        print(f"✅ Nome '{nome_cliente}' salvo para o número {numero_cliente}. Deixando o Dialogflow continuar o fluxo.")
+
+        # Retorna uma resposta vazia para permitir que a transição de página no Dialogflow aconteça
+        # e a nova página faça a próxima pergunta.
+        return jsonify({})
 
     # AÇÃO 3 (NOVA): Receber dados do formulário e salvar no Notion
     elif tag == 'salvar_dados_voo_no_notion':
