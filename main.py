@@ -2,6 +2,7 @@ import os
 import psycopg2
 import functions_framework
 from flask import jsonify
+from notion_utils import create_notion_page # Importamos a nossa nova função
 
 # --- Configuração do Banco de Dados ---
 DB_HOST = os.getenv("DB_HOST")
@@ -98,31 +99,41 @@ def identificar_cliente(request):
         # e a nova página faça a próxima pergunta.
         return jsonify({})
 
-    # AÇÃO 3 (NOVA): Receber dados do formulário e salvar no Notion
+    # AÇÃO 3 (VERSÃO FINAL): Receber dados, formatar e salvar no Notion
     elif tag == 'salvar_dados_voo_no_notion':
-        print("ℹ️ Recebida tag 'salvar_dados_voo_no_notion'. Extraindo parâmetros do formulário...")
+        print("ℹ️ Recebida tag 'salvar_dados_voo_no_notion'. Formatando dados para o Notion...")
         
-        # Extrai todos os dados do formulário que o Dialogflow nos enviou
-        dados_viagem = {
-            "origem": parametros.get('origem', ''),
-            "destino": parametros.get('destino', ''),
-            "data_ida": parametros.get('data_ida', {}),
-            "data_volta": parametros.get('data_volta', {}),
-            "passageiros": parametros.get('passageiros', ''),
+        # Formata as datas que vêm como objetos do Dialogflow para o formato AAAA-MM-DD
+        data_ida_obj = parametros.get('data_ida', {})
+        data_ida_str = f"{int(data_ida_obj.get('year', 0))}-{int(data_ida_obj.get('month', 0)):02d}-{int(data_ida_obj.get('day', 0)):02d}" if data_ida_obj else None
+
+        data_volta_obj = parametros.get('data_volta', {})
+        data_volta_str = f"{int(data_volta_obj.get('year', 0))}-{int(data_volta_obj.get('month', 0)):02d}-{int(data_volta_obj.get('day', 0)):02d}" if data_volta_obj else None
+
+        # Monta o dicionário de dados para enviar para a função do Notion
+        dados_para_notion = {
+            "nome_cliente": parametros.get('person', {}).get('name', 'Não informado'),
+            "whatsapp_cliente": numero_cliente,
+            "tipo_viagem": "Passagem Aérea", # Fixo por enquanto, pois estamos no fluxo de voo
+            "origem_destino": f"{parametros.get('origem').get('business-name', parametros.get('origem').get('original', ''))} → {parametros.get('destino').get('city', parametros.get('destino').get('original', ''))}",
+            "data_ida": data_ida_str,
+            "data_volta": data_volta_str,
+            "qtd_passageiros": parametros.get('passageiros', ''),
             "perfil_viagem": parametros.get('perfil_viagem', ''),
             "preferencias": parametros.get('preferencias', '')
         }
         
-        print(f"✅ Dados extraídos com sucesso: {dados_viagem}")
-
-        # Futuramente, aqui chamaremos a função create_notion_page(dados_viagem)
+        print(f"📄 Dados formatados para o Notion: {dados_para_notion}")
         
-        texto_resposta = "Sua solicitação foi registrada com sucesso! Um de nossos especialistas em viagens irá analisar os melhores preços e opções e te enviará a proposta em breve aqui mesmo. Obrigado! 😊"
+        # Chama a função para criar a página no Notion
+        create_notion_page(dados_para_notion)
+        
+        texto_resposta = "Sua solicitação foi registrada com sucesso! Um de nossos especialistas em viagens irá analisar e te enviar a proposta em breve aqui mesmo. Obrigado! 😊"
 
     else:
         texto_resposta = "Desculpe, não entendi o que preciso fazer. Pode tentar de novo?"
 
-    # Monta a resposta final
+    # Monta a resposta final para o Dialogflow
     response_payload = {
         "fulfillment_response": {
             "messages": [{"text": {"text": [texto_resposta]}}]
