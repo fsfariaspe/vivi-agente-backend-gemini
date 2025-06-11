@@ -1,8 +1,9 @@
-# main.py (versão final com Notion)
 import os
+import psycopg2
 import functions_framework
 from flask import jsonify
 from datetime import datetime
+import pytz  # Importa a biblioteca de fusos horários
 
 # Importa nossas funções de utilidade
 from db import salvar_conversa, buscar_nome_cliente
@@ -38,11 +39,10 @@ def identificar_cliente(request):
         # A resposta agora está no Dialogflow, então retornamos vazio
         return jsonify({})
 
-    # AÇÃO 3 (FINAL): Receber dados do formulário e salvar no Notion
+    # AÇÃO 3 (VERSÃO FINAL COM TIMESTAMP): Receber dados, formatar e salvar no Notion
     elif tag == 'salvar_dados_voo_no_notion':
         print("ℹ️ Recebida tag 'salvar_dados_voo_no_notion'. Formatando dados para o Notion...")
         
-        # Busca o nome mais recente do cliente no banco
         nome_cliente = buscar_nome_cliente(numero_cliente) or parametros.get('person', {}).get('name', 'Não informado')
 
         # Formata as datas
@@ -54,7 +54,16 @@ def identificar_cliente(request):
             data_volta_obj = parametros.get('data_volta', {})
             data_volta_str = f"{int(data_volta_obj.get('year'))}-{int(data_volta_obj.get('month')):02d}-{int(data_volta_obj.get('day')):02d}"
 
+        # --- LÓGICA DO TIMESTAMP (NOVA) ---
+        # Define o fuso horário de Recife
+        fuso_horario_recife = pytz.timezone("America/Recife") 
+        # Pega a data e hora atuais e formata no padrão ISO 8601 com fuso horário
+        timestamp_contato = datetime.now(fuso_horario_recife).isoformat()
+
         dados_para_notion = {
+            # Adicionamos o novo campo de data aqui, que deve corresponder ao nome da sua coluna no Notion
+            "data_contato": timestamp_contato,
+            
             "nome_cliente": nome_cliente,
             "whatsapp_cliente": numero_cliente,
             "tipo_viagem": "Passagem Aérea",

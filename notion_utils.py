@@ -28,6 +28,7 @@ NOTION_PROPERTY_MAP = {
     "preferencias": "Preferências",
     "perfil_viagem": "Perfil de Viagem",
     "whatsapp_cliente": "WhatsApp",
+    "data_contato": "Data de Criação", # ou o nome exato da sua coluna
 }
 
 def create_notion_page(data: dict) -> tuple[Response, int]:
