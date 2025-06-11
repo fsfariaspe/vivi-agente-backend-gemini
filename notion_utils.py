@@ -27,7 +27,7 @@ NOTION_PROPERTY_MAP = {
     "qtd_passageiros": "Qtd. de Passageiros",
     "preferencias": "Preferências",
     "perfil_viagem": "Perfil de Viagem",
-    "whatsapp_cliente": "WhatsApp Cliente",
+    "whatsapp_cliente": "WhatsApp",
 }
 
 def create_notion_page(data: dict) -> tuple[Response, int]:
