@@ -1,4 +1,4 @@
-# notion_utils.py
+# notion_utils.py (versão final e robusta)
 import os
 import requests
 import logging
@@ -17,7 +17,6 @@ HEADERS = {
 
 logger = logging.getLogger(__name__)
 
-# Mapeamento dos nomes das colunas no Notion
 NOTION_PROPERTY_MAP = {
     "nome_cliente": "Nome do Cliente",
     "status": "Status",
@@ -34,51 +33,63 @@ NOTION_PROPERTY_MAP = {
 def create_notion_page(data: dict) -> tuple[Response, int]:
     """Cria uma página no Notion com os dados fornecidos."""
 
-    # Constrói o corpo da requisição para a API do Notion
-    payload = {
-        "parent": {"database_id": NOTION_DATABASE_ID},
-        "properties": {
-            NOTION_PROPERTY_MAP["nome_cliente"]: {
-                "title": [{"text": {"content": data.get("nome_cliente", "")}}]
-            },
-            NOTION_PROPERTY_MAP["status"]: {
-                "select": {"name": data.get("status", "Aguardando Pesquisa")}
-            },
-            NOTION_PROPERTY_MAP["tipo_viagem"]: {
-                "select": {"name": data.get("tipo_viagem", "Passagem Aérea")}
-            },
-            NOTION_PROPERTY_MAP["origem_destino"]: {
-                "rich_text": [{"text": {"content": data.get("origem_destino", "")}}]
-            },
-            NOTION_PROPERTY_MAP["data_ida"]: {
-                "date": {"start": data.get("data_ida")} if data.get("data_ida") else None
-            },
-            NOTION_PROPERTY_MAP["data_volta"]: {
-                "date": {"start": data.get("data_volta")} if data.get("data_volta") else None
-            },
-            NOTION_PROPERTY_MAP["qtd_passageiros"]: {
-                "rich_text": [{"text": {"content": str(data.get("qtd_passageiros", ""))}}]
-            },
-            NOTION_PROPERTY_MAP["preferencias"]: {
-                "rich_text": [{"text": {"content": data.get("preferencias", "")}}]
-            },
-            NOTION_PROPERTY_MAP["perfil_viagem"]: {
-                "select": {"name": data.get("perfil_viagem", "Não informado")} if data.get("perfil_viagem") else None
-            },
-            NOTION_PROPERTY_MAP["whatsapp_cliente"]: {
-                "rich_text": [{"text": {"content": data.get("whatsapp_cliente", "")}}]
-            },
-        }
+    properties = {
+        NOTION_PROPERTY_MAP["nome_cliente"]: {
+            "title": [{"text": {"content": data.get("nome_cliente", "Não informado")}}]
+        },
+        NOTION_PROPERTY_MAP["origem_destino"]: {
+            "rich_text": [{"text": {"content": data.get("origem_destino", "")}}]
+        },
+        NOTION_PROPERTY_MAP["qtd_passageiros"]: {
+            "rich_text": [{"text": {"content": str(data.get("qtd_passageiros", ""))}}]
+        },
+        NOTION_PROPERTY_MAP["preferencias"]: {
+            "rich_text": [{"text": {"content": data.get("preferencias", "")}}]
+        },
+        NOTION_PROPERTY_MAP["whatsapp_cliente"]: {
+            "rich_text": [{"text": {"content": data.get("whatsapp_cliente", "")}}]
+        },
     }
 
-    # Remove propriedades que não foram preenchidas para não enviar valores nulos
-    payload["properties"] = {k: v for k, v in payload["properties"].items() if v is not None}
+    # --- Validações para evitar erro 400 ---
+
+    # Adiciona status apenas se houver um valor válido
+    status = data.get("status", "Aguardando Pesquisa")
+    if status:
+        properties[NOTION_PROPERTY_MAP["status"]] = {"select": {"name": status}}
+
+    # Adiciona tipo de viagem apenas se houver um valor válido
+    tipo_viagem = data.get("tipo_viagem", "Passagem Aérea")
+    if tipo_viagem:
+        properties[NOTION_PROPERTY_MAP["tipo_viagem"]] = {"select": {"name": tipo_viagem}}
+
+    # Adiciona perfil de viagem apenas se houver um valor válido
+    perfil_viagem = data.get("perfil_viagem")
+    if perfil_viagem:
+        properties[NOTION_PROPERTY_MAP["perfil_viagem"]] = {"select": {"name": perfil_viagem}}
+
+    # Adiciona datas apenas se forem válidas
+    if data.get("data_ida"):
+        properties[NOTION_PROPERTY_MAP["data_ida"]] = {"date": {"start": data.get("data_ida")}}
+
+    if data.get("data_volta"):
+        properties[NOTION_PROPERTY_MAP["data_volta"]] = {"date": {"start": data.get("data_volta")}}
+
+    payload = {
+        "parent": {"database_id": NOTION_DATABASE_ID},
+        "properties": properties
+    }
 
     try:
         response = requests.post(NOTION_API_URL, headers=HEADERS, json=payload)
-        response.raise_for_status() # Lança um erro para status codes 4xx/5xx
+        # Imprime a resposta do Notion para depuração, em caso de erro
+        if response.status_code != 200:
+            logger.error("NOTION ERROR RESPONSE: %s", response.text)
+        response.raise_for_status()
         logger.info("✅ Página criada no Notion com sucesso!")
-        return jsonify({"status": "Sucesso", "notion_response": response.json()}), response.status_code
+        # O retorno pode ser simplificado, pois o main.py já lida com a resposta
+        return jsonify(response.json()), response.status_code
     except requests.exceptions.RequestException as e:
-        logger.exception("❌ Erro ao enviar para o Notion: %s", e.response.text if e.response else e)
-        return jsonify({"erro": "Erro ao enviar para o Notion"}), 500
+        # Loga o erro completo para facilitar a depuração
+        logger.exception("❌ Erro ao enviar para o Notion: %s", e)
+        return jsonify({"erro": str(e)}), e.response.status_code if e.response else 500
