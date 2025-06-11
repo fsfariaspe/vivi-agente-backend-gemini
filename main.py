@@ -1,61 +1,15 @@
+# main.py (versão final com Notion)
 import os
-import psycopg2
 import functions_framework
 from flask import jsonify
-from notion_utils import create_notion_page # Importamos a nossa nova função
+from datetime import datetime
 
-# --- Configuração do Banco de Dados ---
-DB_HOST = os.getenv("DB_HOST")
-DB_NAME = os.getenv("DB_NAME")
-DB_USER = os.getenv("DB_USER")
-DB_PASSWORD = os.getenv("DB_PASSWORD")
-
-# --- Lógica de Conexão Otimizada ---
-conn = None
-
-def get_db_connection():
-    """Retorna uma conexão com o banco de dados, criando uma se não existir."""
-    global conn
-    if conn is None or conn.closed:
-        try:
-            conn = psycopg2.connect(
-                dbname=DB_NAME, user=DB_USER, password=DB_PASSWORD,
-                host=DB_HOST, port="5432", sslmode="require"
-            )
-        except Exception as e:
-            print(f"❌ Erro CRÍTICO ao conectar ao PostgreSQL: {e}")
-            conn = None
-    return conn
-
-# --- Funções de Lógica de Negócio ---
-def salvar_conversa_no_banco(numero_cliente, mensagem, nome_cliente, thread_id=None):
-    """Salva uma única mensagem no banco de dados."""
-    db_conn = get_db_connection()
-    if not db_conn:
-        print("⚠️ Conexão com o banco indisponível. Não foi possível salvar a conversa.")
-        return
-
-    try:
-        with db_conn.cursor() as cur:
-            cur.execute(
-                """
-                INSERT INTO conversas (numero_cliente, nome_cliente, mensagem_inicial, openai_thread_id)
-                VALUES (%s, %s, %s, %s)
-                """,
-                (numero_cliente, nome_cliente, mensagem, thread_id)
-            )
-            db_conn.commit()
-            print(f"💾 Conversa salva para o cliente: {nome_cliente}")
-    except Exception as e:
-        print(f"❌ Erro ao salvar conversa no banco: {e}")
-        db_conn.rollback()
-
-# Inicializa a conexão na primeira execução
-get_db_connection()
+# Importa nossas funções de utilidade
+from db import salvar_conversa, buscar_nome_cliente
+from notion_utils import create_notion_page
 
 @functions_framework.http
 def identificar_cliente(request):
-    """Função "canivete suíço" que lida com diferentes ações do Dialogflow."""
     request_json = request.get_json(silent=True)
     tag = request_json.get('fulfillmentInfo', {}).get('tag', '')
     parametros = request_json.get('sessionInfo', {}).get('parameters', {})
@@ -69,53 +23,42 @@ def identificar_cliente(request):
 
     # AÇÃO 1: Identificar o cliente no início da conversa
     if tag == 'identificar_cliente':
-        db_conn = get_db_connection()
-        if db_conn:
-            with db_conn.cursor() as cur:
-                cur.execute(
-                    "SELECT nome_cliente FROM conversas WHERE numero_cliente = %s AND nome_cliente IS NOT NULL ORDER BY data_inicio DESC LIMIT 1",
-                    (numero_cliente,)
-                )
-                resultado = cur.fetchone()
-            if resultado and resultado[0]:
-                texto_resposta = f"Olá, {resultado[0]}! Que bom te ver de volta! Como posso te ajudar a planejar sua próxima viagem?"
-            else:
-                texto_resposta = "Olá! 😊 Eu sou a Vivi, sua consultora de viagens virtual. Para um atendimento mais atencioso, pode me dizer seu nome, por favor?"
+        nome_existente = buscar_nome_cliente(numero_cliente)
+        if nome_existente:
+            texto_resposta = f"Olá, {nome_existente}! Que bom te ver de volta! Como posso te ajudar a planejar sua próxima viagem?"
         else:
-            texto_resposta = "Olá! Eu sou a Vivi, sua consultora de viagens. Como posso te ajudar?"
+            texto_resposta = "Olá! 😊 Eu sou a Vivi, sua consultora de viagens virtual. Para um atendimento mais atencioso, pode me dizer seu nome, por favor?"
 
-        # AÇÃO 2: Salvar o nome (a resposta de texto foi removida)
+    # AÇÃO 2: Salvar o nome e fazer a próxima pergunta
     elif tag == 'salvar_nome_e_perguntar_produto':
-        parametros = request_json.get('sessionInfo', {}).get('parameters', {})
         nome_cliente = parametros.get('person', {}).get('name', 'Cliente')
-
-        # Salva a informação no banco
-        mensagem_completa = f"O cliente informou o nome: {nome_cliente}. Nome capturado com sucesso."
-        salvar_conversa_no_banco(numero_cliente, mensagem_completa, nome_cliente)
-
-        print(f"✅ Nome '{nome_cliente}' salvo para o número {numero_cliente}. Deixando o Dialogflow continuar o fluxo.")
-
-        # Retorna uma resposta vazia para permitir que a transição de página no Dialogflow aconteça
-        # e a nova página faça a próxima pergunta.
+        mensagem_completa = f"O cliente informou o nome: {nome_cliente}."
+        salvar_conversa(numero_cliente, mensagem_completa, nome_cliente)
+        
+        # A resposta agora está no Dialogflow, então retornamos vazio
         return jsonify({})
 
-    # AÇÃO 3 (VERSÃO FINAL): Receber dados, formatar e salvar no Notion
+    # AÇÃO 3 (FINAL): Receber dados do formulário e salvar no Notion
     elif tag == 'salvar_dados_voo_no_notion':
         print("ℹ️ Recebida tag 'salvar_dados_voo_no_notion'. Formatando dados para o Notion...")
         
-        # Formata as datas que vêm como objetos do Dialogflow para o formato AAAA-MM-DD
+        # Busca o nome mais recente do cliente no banco
+        nome_cliente = buscar_nome_cliente(numero_cliente) or parametros.get('person', {}).get('name', 'Não informado')
+
+        # Formata as datas
         data_ida_obj = parametros.get('data_ida', {})
-        data_ida_str = f"{int(data_ida_obj.get('year', 0))}-{int(data_ida_obj.get('month', 0)):02d}-{int(data_ida_obj.get('day', 0)):02d}" if data_ida_obj else None
+        data_ida_str = f"{int(data_ida_obj.get('year'))}-{int(data_ida_obj.get('month')):02d}-{int(data_ida_obj.get('day')):02d}" if data_ida_obj else None
+        
+        data_volta_str = None
+        if 'data_volta' in parametros and parametros['data_volta']:
+            data_volta_obj = parametros.get('data_volta', {})
+            data_volta_str = f"{int(data_volta_obj.get('year'))}-{int(data_volta_obj.get('month')):02d}-{int(data_volta_obj.get('day')):02d}"
 
-        data_volta_obj = parametros.get('data_volta', {})
-        data_volta_str = f"{int(data_volta_obj.get('year', 0))}-{int(data_volta_obj.get('month', 0)):02d}-{int(data_volta_obj.get('day', 0)):02d}" if data_volta_obj else None
-
-        # Monta o dicionário de dados para enviar para a função do Notion
         dados_para_notion = {
-            "nome_cliente": parametros.get('person', {}).get('name', 'Não informado'),
+            "nome_cliente": nome_cliente,
             "whatsapp_cliente": numero_cliente,
-            "tipo_viagem": "Passagem Aérea", # Fixo por enquanto, pois estamos no fluxo de voo
-            "origem_destino": f"{parametros.get('origem').get('business-name', parametros.get('origem').get('original', ''))} → {parametros.get('destino').get('city', parametros.get('destino').get('original', ''))}",
+            "tipo_viagem": "Passagem Aérea",
+            "origem_destino": f"{parametros.get('origem').get('original', '')} → {parametros.get('destino').get('original', '')}",
             "data_ida": data_ida_str,
             "data_volta": data_volta_str,
             "qtd_passageiros": parametros.get('passageiros', ''),
@@ -123,12 +66,15 @@ def identificar_cliente(request):
             "preferencias": parametros.get('preferencias', '')
         }
         
-        print(f"📄 Dados formatados para o Notion: {dados_para_notion}")
+        print(f"📄 Tentando criar página no Notion com os dados: {dados_para_notion}")
         
-        # Chama a função para criar a página no Notion
-        create_notion_page(dados_para_notion)
+        # Chama a função para criar a página e captura a resposta
+        notion_response, status_code = create_notion_page(dados_para_notion)
         
-        texto_resposta = "Sua solicitação foi registrada com sucesso! Um de nossos especialistas em viagens irá analisar e te enviar a proposta em breve aqui mesmo. Obrigado! 😊"
+        if 200 <= status_code < 300:
+            texto_resposta = "Sua solicitação foi registrada com sucesso! Um de nossos especialistas irá analisar e te enviar a proposta em breve aqui mesmo. Obrigado! 😊"
+        else:
+            texto_resposta = "Consegui coletar todas as informações, mas tive um problema ao registrar sua solicitação em nosso sistema. Nossa equipe humana já foi notificada do erro e cuidará do seu pedido. Não se preocupe!"
 
     else:
         texto_resposta = "Desculpe, não entendi o que preciso fazer. Pode tentar de novo?"
