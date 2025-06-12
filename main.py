@@ -25,7 +25,10 @@ logger = logging.getLogger(__name__)
 # --- Ponto de Entrada 1 (Webhook para o Dialogflow) ---
 @functions_framework.http
 def vivi_webhook(request):
-    """Função 'Atendente': recebe a chamada do Dialogflow e delega o trabalho demorado."""
+    """
+    Função "ATENDENTE": Recebe a chamada do Dialogflow, decide o que fazer,
+    e responde RÁPIDO, delegando trabalho demorado para o Cloud Tasks.
+    """
     request_json = request.get_json(silent=True)
     tag = request_json.get('fulfillmentInfo', {}).get('tag', '')
     parametros = request_json.get('sessionInfo', {}).get('parameters', {})
@@ -39,44 +42,58 @@ def vivi_webhook(request):
 
     if tag == 'identificar_cliente':
         nome_existente = buscar_nome_cliente(numero_cliente)
-        texto_resposta = f"Olá, {nome_existente}! Que bom te ver de volta! Como posso te ajudar?" if nome_existente else "Olá! 😊 Eu sou a Vivi, sua consultora de viagens virtual. Para um atendimento mais atencioso, pode me dizer seu nome, por favor?"
+        if nome_existente:
+            texto_resposta = f"Olá, {nome_existente}! Que bom te ver de volta! Como posso te ajudar a planejar sua próxima viagem?"
+        else:
+            texto_resposta = "Olá! 😊 Eu sou a Vivi, sua consultora de viagens virtual. Para um atendimento mais atencioso, pode me dizer seu nome, por favor?"
 
     elif tag == 'salvar_nome_e_perguntar_produto':
         nome_cliente = parametros.get('person', {}).get('name', 'Cliente')
-        salvar_conversa(numero_cliente, f"O cliente informou o nome: {nome_cliente}.", nome_cliente)
+        mensagem_completa = f"O cliente informou o nome: {nome_cliente}."
+        salvar_conversa(numero_cliente, mensagem_completa, nome_cliente)
+        print(f"✅ Nome '{nome_cliente}' salvo para o número {numero_cliente}. Deixando o Dialogflow continuar o fluxo.")
         return jsonify({})
 
     elif tag == 'salvar_dados_voo_no_notion':
-        print("ℹ️ Tag 'salvar_dados_voo_no_notion' recebida. Criando tarefa assíncrona...")
+        print("ℹ️ Recebida tag 'salvar_dados_voo_no_notion'. Criando tarefa assíncrona...")
         
         service_url = os.getenv("SERVICE_URL")
-        worker_url = f"{service_url}" # O worker é o mesmo serviço, mas será chamado com um header diferente
-        queue_path = tasks_client.queue_path(PROJECT_ID, LOCATION_ID, QUEUE_ID)
-        
-        payload_para_tarefa = request.get_data() # Passa o corpo inteiro da requisição original para a tarefa
+        if not service_url:
+            print("❌ ERRO FATAL: A variável de ambiente SERVICE_URL não foi encontrada.")
+            texto_resposta = "Ocorreu um erro interno de configuração (URL_SERVICE_MISSING)."
+        else:
+            # --- CORREÇÃO FINAL APLICADA ---
+            # Garante que a URL sempre use HTTPS, que é o exigido pelo Cloud Tasks com autenticação
+            if service_url.startswith("http://"):
+                worker_url = service_url.replace("http://", "https://", 1)
+            else:
+                worker_url = service_url
+            
+            payload_para_tarefa = request.get_data() # Passa o corpo inteiro da requisição original
+            queue_path = tasks_client.queue_path(PROJECT_ID, LOCATION_ID, QUEUE_ID)
 
-        task = {
-            "http_request": {
-                "http_method": tasks_v2.HttpMethod.POST,
-                "url": worker_url,
-                "headers": {"Content-type": "application/json", "X-Cloud-Tasks-Target": "processar_tarefa"},
-                "body": payload_para_tarefa,
-                "oidc_token": {"service_account_email": SERVICE_ACCOUNT_EMAIL}
+            task = {
+                "http_request": {
+                    "http_method": tasks_v2.HttpMethod.POST,
+                    "url": worker_url,
+                    "headers": {"Content-type": "application/json", "X-Cloud-Tasks-Target": "processar_tarefa"},
+                    "body": payload_para_tarefa,
+                    "oidc_token": {"service_account_email": SERVICE_ACCOUNT_EMAIL}
+                }
             }
-        }
-        
-        try:
-            tasks_client.create_task(parent=queue_path, task=task)
-            texto_resposta = "Sua solicitação foi registrada com sucesso! Um de nossos especialistas irá analisar e te enviará a proposta em breve aqui mesmo. Obrigado! 😊"
-        except Exception as e:
-            logger.exception("❌ Falha ao criar tarefa no Cloud Tasks: %s", e)
-            texto_resposta = "Consegui coletar todas as informações, mas tive um problema ao iniciar o registro da sua solicitação. Nossa equipe já foi notificada."
+            
+            try:
+                tasks_client.create_task(parent=queue_path, task=task)
+                print("✅ Tarefa criada com sucesso na fila.")
+                texto_resposta = "Sua solicitação foi registrada com sucesso! Um de nossos especialistas irá analisar e te enviará a proposta em breve aqui mesmo. Obrigado! 😊"
+            except Exception as e:
+                logger.exception("❌ Falha ao criar tarefa no Cloud Tasks: %s", e)
+                texto_resposta = "Consegui coletar todas as informações, mas tive um problema ao iniciar o registro da sua solicitação. Nossa equipe já foi notificada."
         
     else:
         texto_resposta = "Desculpe, não entendi o que preciso fazer."
 
     return jsonify({"fulfillment_response": {"messages": [{"text": {"text": [texto_resposta]}}]}})
-
 
 # --- Ponto de Entrada 2 (Webhook para o Cloud Tasks) ---
 @functions_framework.http
