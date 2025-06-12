@@ -37,6 +37,7 @@ def salvar_conversa(numero_cliente, mensagem, nome_cliente):
                 (numero_cliente, nome_cliente, mensagem)
             )
             conn.commit()
+            logger.info("💾 Conversa salva para o cliente: %s", nome_cliente)
     except Exception as e:
         logger.error(f"❌ Erro ao salvar conversa no banco: {e}")
         conn.rollback()

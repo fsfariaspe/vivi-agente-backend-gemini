@@ -6,24 +6,26 @@ from datetime import datetime
 
 import functions_framework
 from flask import jsonify
-import psycopg2
-
 from google.cloud import tasks_v2
-from notion_utils import create_notion_page
-from db import salvar_conversa, buscar_nome_cliente
 
-# Cloud Tasks configuration
+# Importa as funções dos nossos arquivos de utilidade
+from db import salvar_conversa, buscar_nome_cliente
+from notion_utils import create_notion_page
+
+# --- Configurações ---
 PROJECT_ID = os.getenv("GCP_PROJECT_ID")
 LOCATION_ID = os.getenv("GCP_LOCATION_ID") 
 QUEUE_ID = os.getenv("CLOUD_TASKS_QUEUE_ID")
+SERVICE_ACCOUNT_EMAIL = os.getenv("GCP_SERVICE_ACCOUNT_EMAIL")
 
 tasks_client = tasks_v2.CloudTasksClient()
-
 logger = logging.getLogger(__name__)
 
-# Main entry point for Dialogflow
+
+# --- Ponto de Entrada 1 (Webhook para o Dialogflow) ---
 @functions_framework.http
 def vivi_webhook(request):
+    """Função 'Atendente': recebe a chamada do Dialogflow e delega o trabalho demorado."""
     request_json = request.get_json(silent=True)
     tag = request_json.get('fulfillmentInfo', {}).get('tag', '')
     parametros = request_json.get('sessionInfo', {}).get('parameters', {})
@@ -45,32 +47,26 @@ def vivi_webhook(request):
         return jsonify({})
 
     elif tag == 'salvar_dados_voo_no_notion':
-        print("ℹ️ Recebida tag 'salvar_dados_voo_no_notion'. Criando tarefa assíncrona...")
-
-        # O Ponto de Entrada do nosso worker é o mesmo serviço, a mesma URL.
-        # Nós usamos um header customizado ('X-Cloud-Tasks-Target') para diferenciar as chamadas.
-        # Portanto, o URL do worker é simplesmente a URL da requisição atual.
-        worker_url = request.url 
-
-        payload_para_tarefa = {
-            "numero_cliente": numero_cliente,
-            "parametros": parametros
-        }
-
+        print("ℹ️ Tag 'salvar_dados_voo_no_notion' recebida. Criando tarefa assíncrona...")
+        
+        service_url = os.getenv("SERVICE_URL")
+        worker_url = f"{service_url}" # O worker é o mesmo serviço, mas será chamado com um header diferente
         queue_path = tasks_client.queue_path(PROJECT_ID, LOCATION_ID, QUEUE_ID)
+        
+        payload_para_tarefa = request.get_data() # Passa o corpo inteiro da requisição original para a tarefa
 
         task = {
             "http_request": {
                 "http_method": tasks_v2.HttpMethod.POST,
                 "url": worker_url,
                 "headers": {"Content-type": "application/json", "X-Cloud-Tasks-Target": "processar_tarefa"},
-                "body": json.dumps(payload_para_tarefa).encode(),
+                "body": payload_para_tarefa,
+                "oidc_token": {"service_account_email": SERVICE_ACCOUNT_EMAIL}
             }
         }
-
+        
         try:
             tasks_client.create_task(parent=queue_path, task=task)
-            print("✅ Tarefa criada com sucesso na fila.")
             texto_resposta = "Sua solicitação foi registrada com sucesso! Um de nossos especialistas irá analisar e te enviará a proposta em breve aqui mesmo. Obrigado! 😊"
         except Exception as e:
             logger.exception("❌ Falha ao criar tarefa no Cloud Tasks: %s", e)
@@ -81,84 +77,57 @@ def vivi_webhook(request):
 
     return jsonify({"fulfillment_response": {"messages": [{"text": {"text": [texto_resposta]}}]}})
 
-# Worker entry point for Cloud Tasks
+
+# --- Ponto de Entrada 2 (Webhook para o Cloud Tasks) ---
 @functions_framework.http
 def processar_tarefa(request):
-    """
-    Função "TRABALHADOR": É chamada pelo Cloud Tasks. Não tem limite de tempo.
-    """
+    """Função 'Trabalhador': chamada pelo Cloud Tasks para fazer o trabalho demorado."""
     if "X-Cloud-Tasks-Target" not in request.headers or request.headers["X-Cloud-Tasks-Target"] != "processar_tarefa":
-        print("⚠️ Chamada não autorizada para o worker. Ignorando.")
         return "Chamada não autorizada.", 403
 
-    task_payload = request.get_json(silent=True)
-    if not task_payload:
+    request_json = request.get_json(silent=True)
+    if not request_json:
         return "Corpo da requisição ausente ou inválido.", 400
+        
+    print(f"👷 Worker recebeu uma tarefa: {request_json}")
+    
+    parametros = request_json.get('sessionInfo', {}).get('parameters', {})
+    numero_cliente_com_prefixo = request_json.get('sessionInfo', {}).get('session', '').split('/')[-1]
+    numero_cliente = ''.join(filter(str.isdigit, numero_cliente_com_prefixo))
+    if numero_cliente.startswith('55'):
+        numero_cliente = f"+{numero_cliente}"
+    
+    nome_cliente = buscar_nome_cliente(numero_cliente) or parametros.get('person', {}).get('name', 'Não informado')
 
-    print(f"👷 Worker recebeu uma tarefa: {task_payload}")
-
-    parametros = task_payload.get('parametros', {})
-    numero_cliente = task_payload.get('numero_cliente')
-
-    # --- LÓGICA DE EXTRAÇÃO DE DADOS ROBUSTA ---
-
-    # Busca o nome do cliente no banco
-    nome_cliente_db = buscar_nome_cliente(numero_cliente)
-
-    # Pega o nome do parâmetro, se existir, e só então pega o valor de 'name'
-    nome_cliente_param = 'Não informado'
-    person_obj = parametros.get('person')
-    if isinstance(person_obj, dict):
-        nome_cliente_param = person_obj.get('name', 'Não informado')
-
-    # Usa o nome do banco se existir, senão usa o do parâmetro
-    nome_cliente_final = nome_cliente_db or nome_cliente_param
-
-    # Formata as datas com segurança
-    data_ida_str = None
+    data_ida_str, data_volta_str = None, None
     data_ida_obj = parametros.get('data_ida', {})
     if isinstance(data_ida_obj, dict):
         data_ida_str = f"{int(data_ida_obj.get('year'))}-{int(data_ida_obj.get('month')):02d}-{int(data_ida_obj.get('day')):02d}"
-
-    data_volta_str = None
+    
     data_volta_obj = parametros.get('data_volta')
     if isinstance(data_volta_obj, dict):
         data_volta_str = f"{int(data_volta_obj.get('year'))}-{int(data_volta_obj.get('month')):02d}-{int(data_volta_obj.get('day')):02d}"
-
-    # Gera o timestamp
+    
     fuso_horario_recife = pytz.timezone("America/Recife") 
     timestamp_contato = datetime.now(fuso_horario_recife).isoformat()
+    
+    origem_nome = parametros.get('origem', {}).get('original', '')
+    destino_nome = parametros.get('destino', {}).get('original', '')
 
-    # Extrai os nomes dos locais com segurança
-    origem_obj = parametros.get('origem', {})
-    origem_nome = origem_obj.get('original', '') if isinstance(origem_obj, dict) else str(origem_obj)
-
-    destino_obj = parametros.get('destino', {})
-    destino_nome = destino_obj.get('original', '') if isinstance(destino_obj, dict) else str(destino_obj)
-
-    # Monta o dicionário final para o Notion
     dados_para_notion = {
-        "data_contato": timestamp_contato,
-        "nome_cliente": nome_cliente_final,
-        "whatsapp_cliente": numero_cliente,
-        "tipo_viagem": "Passagem Aérea",
-        "origem_destino": f"{origem_nome} → {destino_nome}",
-        "data_ida": data_ida_str,
-        "data_volta": data_volta_str,
-        "qtd_passageiros": str(parametros.get('passageiros', '')),
-        "perfil_viagem": parametros.get('perfil_viagem', ''),
-        "preferencias": parametros.get('preferencias', '')
+        "data_contato": timestamp_contato, "nome_cliente": nome_cliente, "whatsapp_cliente": numero_cliente,
+        "tipo_viagem": "Passagem Aérea", "origem_destino": f"{origem_nome} → {destino_nome}",
+        "data_ida": data_ida_str, "data_volta": data_volta_str, "qtd_passageiros": str(parametros.get('passageiros', '')),
+        "perfil_viagem": parametros.get('perfil_viagem', ''), "preferencias": parametros.get('preferencias', '')
     }
-
+    
     print(f"📄 Enviando para o Notion: {dados_para_notion}")
-
-    # Chama a função para criar a página no Notion
+    
     notion_response, status_code = create_notion_page(dados_para_notion)
-
+    
     if 200 <= status_code < 300:
         print("✅ Tarefa concluída. Página criada no Notion.")
         return "OK", 200
     else:
         print(f"🚨 Falha ao processar tarefa. Status do Notion: {status_code}.")
-        # Retorna um erro para o Cloud Tasks tentar novamente (se configurado na fila)
         return "Erro ao criar página no Notion", 500
