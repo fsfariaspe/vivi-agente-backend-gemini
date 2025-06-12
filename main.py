@@ -45,23 +45,36 @@ def vivi_webhook(request):
         return jsonify({})
 
     elif tag == 'salvar_dados_voo_no_notion':
-        print("ℹ️ Tag 'salvar_dados_voo_no_notion' recebida. Criando tarefa assíncrona...")
-        
-        service_url = os.getenv("SERVICE_URL")
-        if not service_url:
-            texto_resposta = "Ocorreu um erro interno de configuração (URL_SERVICE_MISSING)."
-        else:
-            worker_url = f"{service_url}"
-            payload_para_tarefa = {"numero_cliente": numero_cliente, "parametros": parametros}
-            queue_path = tasks_client.queue_path(PROJECT_ID, LOCATION_ID, QUEUE_ID)
-            task = { "http_request": { "http_method": tasks_v2.HttpMethod.POST, "url": worker_url, "headers": {"Content-type": "application/json", "X-Cloud-Tasks-Target": "processar_tarefa"}, "body": json.dumps(payload_para_tarefa).encode() } }
-            
-            try:
-                tasks_client.create_task(parent=queue_path, task=task)
-                texto_resposta = "Sua solicitação foi registrada com sucesso! Um de nossos especialistas irá analisar e te enviar a proposta em breve aqui mesmo. Obrigado! 😊"
-            except Exception as e:
-                logger.exception("❌ Falha ao criar tarefa no Cloud Tasks: %s", e)
-                texto_resposta = "Consegui coletar todas as informações, mas tive um problema ao iniciar o registro da sua solicitação. Nossa equipe já foi notificada."
+        print("ℹ️ Recebida tag 'salvar_dados_voo_no_notion'. Criando tarefa assíncrona...")
+
+        # O Ponto de Entrada do nosso worker é o mesmo serviço, a mesma URL.
+        # Nós usamos um header customizado ('X-Cloud-Tasks-Target') para diferenciar as chamadas.
+        # Portanto, o URL do worker é simplesmente a URL da requisição atual.
+        worker_url = request.url 
+
+        payload_para_tarefa = {
+            "numero_cliente": numero_cliente,
+            "parametros": parametros
+        }
+
+        queue_path = tasks_client.queue_path(PROJECT_ID, LOCATION_ID, QUEUE_ID)
+
+        task = {
+            "http_request": {
+                "http_method": tasks_v2.HttpMethod.POST,
+                "url": worker_url,
+                "headers": {"Content-type": "application/json", "X-Cloud-Tasks-Target": "processar_tarefa"},
+                "body": json.dumps(payload_para_tarefa).encode(),
+            }
+        }
+
+        try:
+            tasks_client.create_task(parent=queue_path, task=task)
+            print("✅ Tarefa criada com sucesso na fila.")
+            texto_resposta = "Sua solicitação foi registrada com sucesso! Um de nossos especialistas irá analisar e te enviará a proposta em breve aqui mesmo. Obrigado! 😊"
+        except Exception as e:
+            logger.exception("❌ Falha ao criar tarefa no Cloud Tasks: %s", e)
+            texto_resposta = "Consegui coletar todas as informações, mas tive um problema ao iniciar o registro da sua solicitação. Nossa equipe já foi notificada."
         
     else:
         texto_resposta = "Desculpe, não entendi o que preciso fazer."
