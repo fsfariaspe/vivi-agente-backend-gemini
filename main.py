@@ -84,50 +84,81 @@ def vivi_webhook(request):
 # Worker entry point for Cloud Tasks
 @functions_framework.http
 def processar_tarefa(request):
+    """
+    Função "TRABALHADOR": É chamada pelo Cloud Tasks. Não tem limite de tempo.
+    """
     if "X-Cloud-Tasks-Target" not in request.headers or request.headers["X-Cloud-Tasks-Target"] != "processar_tarefa":
+        print("⚠️ Chamada não autorizada para o worker. Ignorando.")
         return "Chamada não autorizada.", 403
 
     task_payload = request.get_json(silent=True)
     if not task_payload:
         return "Corpo da requisição ausente ou inválido.", 400
-        
+
     print(f"👷 Worker recebeu uma tarefa: {task_payload}")
-    
+
     parametros = task_payload.get('parametros', {})
     numero_cliente = task_payload.get('numero_cliente')
-    
-    nome_cliente = buscar_nome_cliente(numero_cliente) or parametros.get('person', {}).get('name', 'Não informado')
 
-    # --- LÓGICA DE FORMATAÇÃO FINAL E CORRIGIDA ---
-    data_ida_str, data_volta_str = None, None
+    # --- LÓGICA DE EXTRAÇÃO DE DADOS ROBUSTA ---
+
+    # Busca o nome do cliente no banco
+    nome_cliente_db = buscar_nome_cliente(numero_cliente)
+
+    # Pega o nome do parâmetro, se existir, e só então pega o valor de 'name'
+    nome_cliente_param = 'Não informado'
+    person_obj = parametros.get('person')
+    if isinstance(person_obj, dict):
+        nome_cliente_param = person_obj.get('name', 'Não informado')
+
+    # Usa o nome do banco se existir, senão usa o do parâmetro
+    nome_cliente_final = nome_cliente_db or nome_cliente_param
+
+    # Formata as datas com segurança
+    data_ida_str = None
     data_ida_obj = parametros.get('data_ida', {})
     if isinstance(data_ida_obj, dict):
         data_ida_str = f"{int(data_ida_obj.get('year'))}-{int(data_ida_obj.get('month')):02d}-{int(data_ida_obj.get('day')):02d}"
-    
+
+    data_volta_str = None
     data_volta_obj = parametros.get('data_volta')
-    # AQUI ESTÁ A VERIFICAÇÃO QUE FALTAVA
     if isinstance(data_volta_obj, dict):
         data_volta_str = f"{int(data_volta_obj.get('year'))}-{int(data_volta_obj.get('month')):02d}-{int(data_volta_obj.get('day')):02d}"
-    
-    timestamp_contato = datetime.now(pytz.timezone("America/Recife")).isoformat()
-    
-    origem_nome = parametros.get('origem', {}).get('original', '')
-    destino_nome = parametros.get('destino', {}).get('original', '')
 
+    # Gera o timestamp
+    fuso_horario_recife = pytz.timezone("America/Recife") 
+    timestamp_contato = datetime.now(fuso_horario_recife).isoformat()
+
+    # Extrai os nomes dos locais com segurança
+    origem_obj = parametros.get('origem', {})
+    origem_nome = origem_obj.get('original', '') if isinstance(origem_obj, dict) else str(origem_obj)
+
+    destino_obj = parametros.get('destino', {})
+    destino_nome = destino_obj.get('original', '') if isinstance(destino_obj, dict) else str(destino_obj)
+
+    # Monta o dicionário final para o Notion
     dados_para_notion = {
-        "data_contato": timestamp_contato, "nome_cliente": nome_cliente, "whatsapp_cliente": numero_cliente,
-        "tipo_viagem": "Passagem Aérea", "origem_destino": f"{origem_nome} → {destino_nome}",
-        "data_ida": data_ida_str, "data_volta": data_volta_str, "qtd_passageiros": str(parametros.get('passageiros', '')),
-        "perfil_viagem": parametros.get('perfil_viagem', ''), "preferencias": parametros.get('preferencias', '')
+        "data_contato": timestamp_contato,
+        "nome_cliente": nome_cliente_final,
+        "whatsapp_cliente": numero_cliente,
+        "tipo_viagem": "Passagem Aérea",
+        "origem_destino": f"{origem_nome} → {destino_nome}",
+        "data_ida": data_ida_str,
+        "data_volta": data_volta_str,
+        "qtd_passageiros": str(parametros.get('passageiros', '')),
+        "perfil_viagem": parametros.get('perfil_viagem', ''),
+        "preferencias": parametros.get('preferencias', '')
     }
-    
+
     print(f"📄 Enviando para o Notion: {dados_para_notion}")
-    
+
+    # Chama a função para criar a página no Notion
     notion_response, status_code = create_notion_page(dados_para_notion)
-    
+
     if 200 <= status_code < 300:
         print("✅ Tarefa concluída. Página criada no Notion.")
         return "OK", 200
     else:
         print(f"🚨 Falha ao processar tarefa. Status do Notion: {status_code}.")
+        # Retorna um erro para o Cloud Tasks tentar novamente (se configurado na fila)
         return "Erro ao criar página no Notion", 500
