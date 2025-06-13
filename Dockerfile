@@ -14,6 +14,5 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copia o resto do código da nossa aplicação (main.py, notion_utils.py).
 COPY . .
 
-# --- ESTA É A LINHA MAIS IMPORTANTE ---
-# Comando para iniciar a aplicação, apontando para a nova função principal 'vivi_webhook'
-CMD ["functions-framework", "--target=vivi_webhook", "--port=8080"]
+# Inicia o servidor Gunicorn para servir nossa aplicação Flask ('app') a partir do arquivo 'main'.
+CMD exec gunicorn --bind :$PORT --workers 1 --threads 8 --timeout 0 main:app

@@ -1,6 +1,8 @@
 functions-framework==3.*
-psycopg2-binary==2.9.9
+psycopg2-binary
 requests
-python-dotenv
+python-dateutil
 pytz
 google-cloud-tasks
+Flask
+gunicorn
