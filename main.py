@@ -54,9 +54,11 @@ def vivi_webhook(request):
         print(f"✅ Nome '{nome_cliente}' salvo para o número {numero_cliente}. Deixando o Dialogflow continuar o fluxo.")
         return jsonify({})
 
+        # SUBSTITUA ESTE BLOCO NO SEU main.py
+
     elif tag == 'salvar_dados_voo_no_notion':
-        print("ℹ️ Recebida tag 'salvar_dados_voo_no_notion'. Criando tarefa assíncrona...")
-        
+        print("ℹ️ Tag 'salvar_dados_voo_no_notion' recebida. Criando tarefa assíncrona...")
+
         service_url = os.getenv("SERVICE_URL")
         if not service_url:
             print("❌ ERRO FATAL: A variável de ambiente SERVICE_URL não foi encontrada.")
@@ -64,12 +66,11 @@ def vivi_webhook(request):
         else:
             # --- CORREÇÃO FINAL APLICADA ---
             # Garante que a URL sempre use HTTPS, que é o exigido pelo Cloud Tasks com autenticação
-            if service_url.startswith("http://"):
-                worker_url = service_url.replace("http://", "https://", 1)
-            else:
-                worker_url = service_url
-            
-            payload_para_tarefa = request.get_data() # Passa o corpo inteiro da requisição original
+            worker_url = service_url
+            if worker_url.startswith("http://"):
+                worker_url = worker_url.replace("http://", "https://", 1)
+
+            payload_para_tarefa = request.get_data() 
             queue_path = tasks_client.queue_path(PROJECT_ID, LOCATION_ID, QUEUE_ID)
 
             task = {
@@ -81,7 +82,7 @@ def vivi_webhook(request):
                     "oidc_token": {"service_account_email": SERVICE_ACCOUNT_EMAIL}
                 }
             }
-            
+
             try:
                 tasks_client.create_task(parent=queue_path, task=task)
                 print("✅ Tarefa criada com sucesso na fila.")
@@ -89,6 +90,9 @@ def vivi_webhook(request):
             except Exception as e:
                 logger.exception("❌ Falha ao criar tarefa no Cloud Tasks: %s", e)
                 texto_resposta = "Consegui coletar todas as informações, mas tive um problema ao iniciar o registro da sua solicitação. Nossa equipe já foi notificada."
+
+        response_payload = {"fulfillment_response": {"messages": [{"text": {"text": [texto_resposta]}}]}}
+        return jsonify(response_payload)
         
     else:
         texto_resposta = "Desculpe, não entendi o que preciso fazer."
