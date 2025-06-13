@@ -62,17 +62,22 @@ def vivi_webhook(request):
 
     # AÇÃO 3 (ASSÍNCRONA): Recebe os dados e CRIA UMA TAREFA
     elif tag == 'salvar_dados_voo_no_notion':
-        print("ℹ️ Tag 'salvar_dados_voo_no_notion' recebida. Criando tarefa assíncrona...")
-        
+        print("ℹ️ Recebida tag 'salvar_dados_voo_no_notion'. Criando tarefa assíncrona...")
+
         service_url = os.getenv("SERVICE_URL")
         if not service_url:
             print("❌ ERRO FATAL: A variável de ambiente SERVICE_URL não foi encontrada.")
             texto_resposta = "Ocorreu um erro interno de configuração (URL_SERVICE_MISSING)."
         else:
-            worker_url = service_url.replace("http://", "https://", 1) if service_url.startswith("http://") else service_url
-            
-            payload_para_tarefa = request.get_data()
+            # --- CORREÇÃO APLICADA AQUI ---
+            # Garante que a URL sempre use HTTPS, que é o exigido pelo Cloud Tasks com autenticação
+            worker_url = service_url
+            if worker_url.startswith("http://"):
+                worker_url = worker_url.replace("http://", "https://", 1)
+
             queue_path = tasks_client.queue_path(PROJECT_ID, LOCATION_ID, QUEUE_ID)
+
+            payload_para_tarefa = request.get_data()
 
             task = {
                 "http_request": {
@@ -83,7 +88,7 @@ def vivi_webhook(request):
                     "oidc_token": {"service_account_email": SERVICE_ACCOUNT_EMAIL}
                 }
             }
-            
+
             try:
                 tasks_client.create_task(parent=queue_path, task=task)
                 print("✅ Tarefa criada com sucesso na fila.")
