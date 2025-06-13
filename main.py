@@ -25,43 +25,17 @@ logger = logging.getLogger(__name__)
 # --- Ponto de Entrada 1 (Webhook para o Dialogflow) ---
 @functions_framework.http
 def vivi_webhook(request):
-    """Função 'Atendente': recebe a chamada do Dialogflow e delega o trabalho demorado."""
+    """
+    Função "ATENDENTE": Recebe a chamada do Dialogflow, decide o que fazer,
+    e responde RÁPIDO, delegando trabalho demorado para o Cloud Tasks.
+    """
     request_json = request.get_json(silent=True)
+    if not request_json:
+        return jsonify({"error": "Invalid JSON"}), 400
+
     tag = request_json.get('fulfillmentInfo', {}).get('tag', '')
-
-    if tag == 'salvar_dados_voo_no_notion':
-        print("ℹ️ Tag 'salvar_dados_voo_no_notion' recebida. Criando tarefa assíncrona...")
-
-        service_url = os.getenv("SERVICE_URL")
-        if not service_url:
-            print("❌ ERRO FATAL: A variável de ambiente SERVICE_URL não foi encontrada.")
-            return jsonify({"fulfillment_response": {"messages": [{"text": {"text": ["Ocorreu um erro interno de configuração (URL)."]}}]}})
-
-        worker_url = service_url.replace("http://", "https://", 1) if service_url.startswith("http://") else service_url
-
-        queue_path = tasks_client.queue_path(PROJECT_ID, LOCATION_ID, QUEUE_ID)
-        task_payload = request.get_data()
-
-        task = {
-            "http_request": {
-                "http_method": tasks_v2.HttpMethod.POST,
-                "url": worker_url,
-                "headers": {"Content-type": "application/json", "X-Cloud-Tasks-Target": "processar_tarefa"},
-                "body": task_payload,
-                "oidc_token": {"service_account_email": SERVICE_ACCOUNT_EMAIL}
-            }
-        }
-
-        try:
-            tasks_client.create_task(parent=queue_path, task=task)
-            texto_resposta = "Sua solicitação foi registrada com sucesso! Um de nossos especialistas irá analisar e te enviará a proposta em breve. Obrigado! 😊"
-        except Exception as e:
-            logger.exception("❌ Falha ao criar tarefa no Cloud Tasks: %s", e)
-            texto_resposta = "Consegui coletar todas as informações, mas tive um problema ao iniciar o registro."
-
-        return jsonify({"fulfillment_response": {"messages": [{"text": {"text": [texto_resposta]}}]}})
-
-    # --- As outras tags são processadas de forma síncrona ---
+    parametros = request_json.get('sessionInfo', {}).get('parameters', {})
+    
     numero_cliente_com_prefixo = request_json.get('sessionInfo', {}).get('session', '').split('/')[-1]
     numero_cliente = ''.join(filter(str.isdigit, numero_cliente_com_prefixo))
     if numero_cliente.startswith('55'):
@@ -69,19 +43,66 @@ def vivi_webhook(request):
 
     texto_resposta = ""
 
+    # AÇÃO 1: Identificar o cliente no início da conversa
     if tag == 'identificar_cliente':
         nome_existente = buscar_nome_cliente(numero_cliente)
-        texto_resposta = f"Olá, {nome_existente}! Que bom te ver de volta! Como posso te ajudar?" if nome_existente else "Olá! 😊 Eu sou a Vivi, sua consultora de viagens virtual. Para um atendimento mais atencioso, pode me dizer seu nome, por favor?"
+        if nome_existente:
+            texto_resposta = f"Olá, {nome_existente}! Que bom te ver de volta! Como posso te ajudar a planejar sua próxima viagem?"
+        else:
+            texto_resposta = "Olá! 😊 Eu sou a Vivi, sua consultora de viagens virtual. Para um atendimento mais atencioso, pode me dizer seu nome, por favor?"
 
+    # AÇÃO 2: Salvar o nome e deixar o Dialogflow fazer a próxima pergunta
     elif tag == 'salvar_nome_e_perguntar_produto':
-        nome_cliente = request_json.get('sessionInfo', {}).get('parameters', {}).get('person', {}).get('name', 'Cliente')
-        salvar_conversa(numero_cliente, f"O cliente informou o nome: {nome_cliente}.", nome_cliente)
+        nome_cliente = parametros.get('person', {}).get('name', 'Cliente')
+        mensagem_completa = f"O cliente informou o nome: {nome_cliente}."
+        salvar_conversa(numero_cliente, mensagem_completa, nome_cliente)
+        print(f"✅ Nome '{nome_cliente}' salvo para o número {numero_cliente}. Deixando o Dialogflow continuar o fluxo.")
+        # Este é o único caso com um 'return' no meio, pois a resposta é vazia.
         return jsonify({})
+
+    # AÇÃO 3 (ASSÍNCRONA): Recebe os dados e CRIA UMA TAREFA
+    elif tag == 'salvar_dados_voo_no_notion':
+        print("ℹ️ Tag 'salvar_dados_voo_no_notion' recebida. Criando tarefa assíncrona...")
+        
+        service_url = os.getenv("SERVICE_URL")
+        if not service_url:
+            print("❌ ERRO FATAL: A variável de ambiente SERVICE_URL não foi encontrada.")
+            texto_resposta = "Ocorreu um erro interno de configuração (URL_SERVICE_MISSING)."
+        else:
+            worker_url = service_url.replace("http://", "https://", 1) if service_url.startswith("http://") else service_url
+            
+            payload_para_tarefa = request.get_data()
+            queue_path = tasks_client.queue_path(PROJECT_ID, LOCATION_ID, QUEUE_ID)
+
+            task = {
+                "http_request": {
+                    "http_method": tasks_v2.HttpMethod.POST,
+                    "url": worker_url,
+                    "headers": {"Content-type": "application/json", "X-Cloud-Tasks-Target": "processar_tarefa"},
+                    "body": payload_para_tarefa,
+                    "oidc_token": {"service_account_email": SERVICE_ACCOUNT_EMAIL}
+                }
+            }
+            
+            try:
+                tasks_client.create_task(parent=queue_path, task=task)
+                print("✅ Tarefa criada com sucesso na fila.")
+                texto_resposta = "Sua solicitação foi registrada com sucesso! Um de nossos especialistas irá analisar e te enviará a proposta em breve aqui mesmo. Obrigado! 😊"
+            except Exception as e:
+                logger.exception("❌ Falha ao criar tarefa no Cloud Tasks: %s", e)
+                texto_resposta = "Consegui coletar todas as informações, mas tive um problema ao iniciar o registro da sua solicitação. Nossa equipe já foi notificada."
+        
     else:
         texto_resposta = "Desculpe, não entendi o que preciso fazer."
 
-    return jsonify({"fulfillment_response": {"messages": [{"text": {"text": [texto_resposta]}}]}})
-
+    # --- Ponto de Retorno Único e Final ---
+    # Todos os caminhos (exceto o 'salvar_nome') chegam aqui para montar a resposta.
+    response_payload = {
+        "fulfillment_response": {
+            "messages": [{"text": {"text": [texto_resposta]}}]
+        }
+    }
+    return jsonify(response_payload)
 
 # --- Ponto de Entrada 2 (Webhook para o Cloud Tasks) ---
 @functions_framework.http
