@@ -39,35 +39,37 @@ def vivi_webhook():
     # ... (A lógica para 'identificar_cliente' e 'salvar_nome' continua a mesma) ...
     
     if tag == 'salvar_dados_voo_no_notion':
-        print("ℹ️ ATENDENTE: Recebida tag 'salvar_dados_voo_no_notion'. Criando tarefa...")
-        
-        service_url = os.getenv("SERVICE_URL")
-        if not all([service_url, PROJECT_ID, LOCATION_ID, QUEUE_ID, SERVICE_ACCOUNT_EMAIL]):
-            print("❌ ATENDENTE: Faltando variáveis de ambiente para o Cloud Tasks.")
-            texto_resposta = "Ocorreu um erro interno de configuração para processar sua solicitação."
-        else:
-            # Garante que a URL sempre use HTTPS
-            worker_url = service_url.replace("http://", "https://", 1) + "/processar-tarefa"
-            
-            payload_para_tarefa = request.get_data()
-            queue_path = tasks_client.queue_path(PROJECT_ID, LOCATION_ID, QUEUE_ID)
+        print("ℹ️ Tag 'salvar_dados_voo_no_notion' recebida. Criando tarefa assíncrona...")
 
-            task = {
-                "http_request": {
-                    "http_method": tasks_v2.HttpMethod.POST,
-                    "url": worker_url, # Aponta para a nova porta do trabalhador
-                    "headers": {"Content-type": "application/json"},
-                    "body": payload_para_tarefa,
-                    "oidc_token": {"service_account_email": SERVICE_ACCOUNT_EMAIL}
-                }
+        # --- MUDANÇA AQUI: URL FIXA (HARDCODED) ---
+        # SUBSTITUA PELA URL COMPLETA DO SEU SERVIÇO CLOUD RUN
+        service_url = "https://vivi-agente-backend-gemini-zh35efzi7a-rj.a.run.app"
+        worker_url = service_url.replace("http://", "https://", 1) # Garante HTTPS
+
+        # Adicionamos o caminho para a rota do worker
+        if not worker_url.endswith('/processar-tarefa'):
+            worker_url += "/processar-tarefa"
+
+        payload_para_tarefa = request.get_data()
+        queue_path = tasks_client.queue_path(PROJECT_ID, LOCATION_ID, QUEUE_ID)
+
+        task = {
+            "http_request": {
+                "http_method": tasks_v2.HttpMethod.POST,
+                "url": worker_url,
+                "headers": {"Content-type": "application/json"},
+                "body": payload_para_tarefa,
+                "oidc_token": {"service_account_email": SERVICE_ACCOUNT_EMAIL}
             }
-            try:
-                tasks_client.create_task(parent=queue_path, task=task)
-                print("✅ ATENDENTE: Tarefa criada com sucesso na fila.")
-                texto_resposta = "Sua solicitação foi registrada com sucesso! Um de nossos especialistas irá analisar e te enviará a proposta em breve aqui mesmo. Obrigado! 😊"
-            except Exception as e:
-                logger.exception("❌ ATENDENTE: Falha ao criar tarefa no Cloud Tasks: %s", e)
-                texto_resposta = "Tive um problema ao iniciar o registro da sua solicitação. Nossa equipe já foi notificada."
+        }
+
+        try:
+            tasks_client.create_task(parent=queue_path, task=task)
+            print("✅ Tarefa criada com sucesso na fila.")
+            texto_resposta = "Sua solicitação foi registrada com sucesso! Um de nossos especialistas irá analisar e te enviará a proposta em breve aqui mesmo. Obrigado! 😊"
+        except Exception as e:
+            logger.exception("❌ Falha ao criar tarefa no Cloud Tasks: %s", e)
+            texto_resposta = "Consegui coletar todas as informações, mas tive um problema ao iniciar o registro da sua solicitação. Nossa equipe já foi notificada."
 
         return jsonify({"fulfillment_response": {"messages": [{"text": {"text": [texto_resposta]}}]}})
     
