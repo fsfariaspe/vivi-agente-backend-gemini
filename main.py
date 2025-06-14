@@ -84,6 +84,12 @@ def vivi_webhook():
         
         return jsonify({"fulfillment_response": {"messages": [{"text": {"text": [texto_resposta]}}]}})
 
+    elif tag == 'atualizar_nome_cliente':
+        nome_corrigido = parametros.get('person', {}).get('name')
+        if nome_corrigido:
+            salvar_conversa(numero_cliente, f"O cliente corrigiu o nome para: {nome_corrigido}.", nome_corrigido)
+            print(f"✅ Nome corrigido para '{nome_corrigido}' para o número {numero_cliente}.")
+        return jsonify({}) # Retorna uma resposta vazia para o Dialogflow continuar o fluxo
     # --- Resposta padrão para outras tags ---
     texto_resposta = "Desculpe, não entendi o que preciso fazer."
     return jsonify({"fulfillment_response": {"messages": [{"text": {"text": [texto_resposta]}}]}})
