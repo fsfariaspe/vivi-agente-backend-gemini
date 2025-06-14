@@ -91,7 +91,10 @@ def vivi_webhook():
 # --- PORTA DE ENTRADA 2: Rota para o Trabalhador do Cloud Tasks ---
 @app.route('/processar-tarefa', methods=['POST'])
 def processar_tarefa():
-    print("👷 TRABALHADOR: Tarefa recebida. Preparando para enviar WhatsApp...")
+    """
+    Função "TRABALHADOR": agora vai salvar no Notion E enviar a notificação por WhatsApp.
+    """
+    print("👷 TRABALHADOR: Tarefa recebida. Iniciando processamento completo...")
 
     task_payload = request.get_json(silent=True)
     if not task_payload:
@@ -100,43 +103,91 @@ def processar_tarefa():
 
     parametros = task_payload.get('sessionInfo', {}).get('parameters', {})
 
-    nome_cliente = parametros.get('person', {}).get('name', 'Não informado')
-    origem = parametros.get('origem', {}).get('original', 'N/D')
-    destino = parametros.get('destino', {}).get('original', 'N/D')
-    detalhes_viagem = f"{origem} → {destino}"
-
-    content_variables = json.dumps({
-        '1': nome_cliente, '2': "Passagem Aérea", '3': detalhes_viagem
-    })
-
+    # --- 1. Lógica do NOTION ---
     try:
-        # --- CORREÇÃO AQUI ---
-        # Lê as credenciais e inicializa o cliente DENTRO da função
+        print("📄 Etapa 1: Preparando dados para o Notion...")
+
+        numero_cliente_com_prefixo = task_payload.get('sessionInfo', {}).get('session', '').split('/')[-1]
+        numero_cliente = ''.join(filter(str.isdigit, numero_cliente_com_prefixo))
+        if numero_cliente.startswith('55'):
+            numero_cliente = f"+{numero_cliente}"
+
+        nome_cliente = buscar_nome_cliente(numero_cliente) or parametros.get('person', {}).get('name', 'Não informado')
+
+        data_ida_str, data_volta_str = None, None
+        data_ida_obj = parametros.get('data_ida', {})
+        if isinstance(data_ida_obj, dict):
+            data_ida_str = f"{int(data_ida_obj.get('year'))}-{int(data_ida_obj.get('month')):02d}-{int(data_ida_obj.get('day')):02d}"
+
+        data_volta_obj = parametros.get('data_volta')
+        if isinstance(data_volta_obj, dict):
+            data_volta_str = f"{int(data_volta_obj.get('year'))}-{int(data_volta_obj.get('month')):02d}-{int(data_volta_obj.get('day')):02d}"
+
+        timestamp_contato = datetime.now(pytz.timezone("America/Recife")).isoformat()
+        origem_nome = parametros.get('origem', {}).get('original', '')
+        destino_nome = parametros.get('destino', {}).get('original', '')
+
+        dados_para_notion = {
+            "data_contato": timestamp_contato,
+            "nome_cliente": nome_cliente,
+            "whatsapp_cliente": numero_cliente,
+            "tipo_viagem": "Passagem Aérea",
+            "origem_destino": f"{origem_nome} → {destino_nome}",
+            "data_ida": data_ida_str,
+            "data_volta": data_volta_str,
+            "qtd_passageiros": str(parametros.get('passageiros', '')),
+            "perfil_viagem": parametros.get('perfil_viagem', ''),
+            "preferencias": parametros.get('preferencias', '')
+        }
+
+        print(f"📄 Enviando para o Notion: {dados_para_notion}")
+        _, status_code = create_notion_page(dados_para_notion)
+
+        if not (200 <= status_code < 300):
+            print(f"⚠️ Falha ao criar página no Notion. Status: {status_code}. Continuando para o WhatsApp...")
+        else:
+            print("✅ Página criada no Notion com sucesso.")
+
+    except Exception as e:
+        logger.exception("🚨 TRABALHADOR: Falha CRÍTICA na etapa do Notion: %s", e)
+        # Mesmo com erro no Notion, tentamos notificar
+
+    # --- 2. Lógica do WHATSAPP ---
+    try:
+        print("📱 Etapa 2: Preparando notificação do WhatsApp...")
+
         account_sid = os.getenv("TWILIO_ACCOUNT_SID")
         auth_token = os.getenv("TWILIO_AUTH_TOKEN")
 
         if not all([account_sid, auth_token]):
-            raise ValueError("Credenciais do Twilio (SID ou TOKEN) não encontradas nas variáveis de ambiente.")
+            raise ValueError("Credenciais do Twilio (SID ou TOKEN) não encontradas.")
 
-        # Cria uma instância LOCAL do cliente com as credenciais corretas
-        twilio_client_local = Client(account_sid, auth_token)
+        twilio_client = Client(account_sid, auth_token)
 
         template_sid = os.getenv("TEMPLATE_SID")
         from_number = os.getenv("TWILIO_WHATSAPP_FROM")
         to_number = os.getenv("MEU_WHATSAPP_TO")
 
         if not all([template_sid, from_number, to_number]):
-            raise ValueError("Uma ou mais variáveis do Twilio (TEMPLATE_SID, FROM, TO) não foram configuradas.")
+            raise ValueError("Variáveis de envio do Twilio (SID, FROM, TO) não encontradas.")
 
-        message = twilio_client_local.messages.create( # Usa o cliente local
+        content_variables = json.dumps({
+            '1': nome_cliente,
+            '2': "Passagem Aérea",
+            '3': f"{origem_nome} → {destino_nome}"
+        })
+
+        message = twilio_client.messages.create(
             content_sid=template_sid,
             from_=from_number,
             content_variables=content_variables,
             to=to_number
         )
         print(f"✅ Notificação por WhatsApp enviada com sucesso! SID: {message.sid}")
-        return "OK", 200
 
     except Exception as e:
-        logger.exception("🚨 TRABALHADOR: Falha ao enviar notificação via Twilio: %s", e)
-        return "Erro ao enviar WhatsApp", 500
+        logger.exception("🚨 TRABALHADOR: Falha CRÍTICA na etapa do WhatsApp: %s", e)
+        return "Erro no processo do trabalhador", 500
+
+    # Se tudo correu bem, retorna OK para o Cloud Tasks
+    return "OK", 200
