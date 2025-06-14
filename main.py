@@ -10,6 +10,7 @@ from google.cloud import tasks_v2
 from twilio.rest import Client
 import psycopg2
 
+from notion_utils import create_notion_page
 from db import salvar_conversa, buscar_nome_cliente
 
 # --- Configurações Iniciais ---
