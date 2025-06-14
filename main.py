@@ -89,7 +89,7 @@ def vivi_webhook():
 
 
 # --- PORTA DE ENTRADA 2: Rota para o Trabalhador do Cloud Tasks ---
-@app.route('https://vivi-agente-backend-gemini-189449893651.southamerica-east1.run.app/processar-tarefa', methods=['POST'])
+@app.route('/processar-tarefa', methods=['POST'])
 def processar_tarefa():
     """
     Função "TRABALHADOR": Chamada pelo Cloud Tasks para enviar a notificação.
