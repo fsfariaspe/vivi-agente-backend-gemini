@@ -1,4 +1,4 @@
-# main.py (VERSÃO SÍNCRONA COMPLETA E FINAL)
+# main.py (VERSÃO SÍNCRONA, COMPLETA E FINAL)
 import os
 import json
 import logging
@@ -6,7 +6,7 @@ import pytz
 from datetime import datetime
 
 import functions_framework
-from flask import jsonify
+from flask import jsonify # O functions-framework usa o Flask por baixo dos panos
 import psycopg2
 
 from notion_utils import create_notion_page
@@ -41,7 +41,7 @@ def vivi_webhook(request):
         return jsonify({})
 
     elif tag == 'salvar_dados_voo_no_notion':
-        print("ℹ️ Tag 'salvar_dados_voo_no_notion' recebida. Processando de forma síncrona...")
+        print("ℹ️ Tag 'salvar_dados_voo_no_notion' recebida. Processando...")
 
         nome_cliente = buscar_nome_cliente(numero_cliente) or parametros.get('person', {}).get('name', 'Não informado')
 
@@ -52,12 +52,12 @@ def vivi_webhook(request):
 
         data_volta_obj = parametros.get('data_volta')
         if isinstance(data_volta_obj, dict):
-            data_volta_str = f"{int(data_volta_obj.get('year'))}-{int(data_volta_obj.get('month')):02d}-{int(data_volta_obj.get('day')):02d}"
+             data_volta_str = f"{int(data_volta_obj.get('year'))}-{int(data_volta_obj.get('month')):02d}-{int(data_volta_obj.get('day')):02d}"
 
         timestamp_contato = datetime.now(pytz.timezone("America/Recife")).isoformat()
 
-        origem_nome = parametros.get('origem', {}).get('original', '') if isinstance(parametros.get('origem'), dict) else str(parametros.get('origem'))
-        destino_nome = parametros.get('destino', {}).get('original', '') if isinstance(parametros.get('destino'), dict) else str(parametros.get('destino'))
+        origem_nome = parametros.get('origem', {}).get('original', '')
+        destino_nome = parametros.get('destino', {}).get('original', '')
 
         dados_para_notion = {
             "data_contato": timestamp_contato,

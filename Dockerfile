@@ -18,12 +18,3 @@ COPY . .
 # Inicia o servidor Gunicorn para servir nossa aplicação Flask ('app') a partir do arquivo 'main'.
 CMD ["functions-framework", "--target=vivi_webhook", "--port=8080"]
 
-
-
-
-
-
-
-
-
-
