@@ -1,5 +1,9 @@
 functions-framework==3.*
 psycopg2-binary
 requests
-pytz
 python-dotenv
+pytz
+google-cloud-tasks
+Flask
+gunicorn
+twilio
