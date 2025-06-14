@@ -4,6 +4,7 @@ import json
 import logging
 import pytz
 from datetime import datetime
+from twilio.rest import Client
 
 from flask import Flask, request, jsonify
 from google.cloud import tasks_v2
@@ -78,57 +79,59 @@ def vivi_webhook():
 
 
 # --- PORTA DE ENTRADA 2: Rota para o Trabalhador do Cloud Tasks ---
-@app.route('/processar-tarefa', methods=['POST'])
-def processar_tarefa():
+@functions_framework.http
+def processar_tarefa(request):
     """
-    Função "TRABALHADOR": Chamada APENAS pelo Cloud Tasks.
-    Executa a lógica demorada de salvar no Notion.
+    Função "TRABALHADOR": agora vai enviar uma notificação por WhatsApp.
     """
-    print("👷 TRABALHADOR: Tarefa recebida do Cloud Tasks. Começando a processar...")
-    
+    # Verificação de segurança para garantir que a chamada veio do Cloud Tasks
+    if "X-Cloud-Tasks-Target" not in request.headers or request.headers["X-Cloud-Tasks-Target"] != "processar_tarefa":
+        print("⚠️ Chamada não autorizada para o worker. Ignorando.")
+        return "Chamada não autorizada.", 403
+
     task_payload = request.get_json(silent=True)
     if not task_payload:
         print("🚨 TRABALHADOR: Corpo da requisição da tarefa ausente ou inválido.")
         return "Corpo da tarefa inválido.", 400
-
-    # Extrai todos os dados do payload da tarefa (que é o JSON original do Dialogflow)
+        
+    print(f"👷 Worker recebeu uma tarefa para enviar WhatsApp: {task_payload}")
+    
+    # Extrai os dados que queremos enviar na notificação
     parametros = task_payload.get('sessionInfo', {}).get('parameters', {})
-    numero_cliente_com_prefixo = task_payload.get('sessionInfo', {}).get('session', '').split('/')[-1]
-    numero_cliente = ''.join(filter(str.isdigit, numero_cliente_com_prefixo))
-    if numero_cliente.startswith('55'):
-        numero_cliente = f"+{numero_cliente}"
-
-    nome_cliente = buscar_nome_cliente(numero_cliente) or parametros.get('person', {}).get('name', 'Não informado')
-
-    data_ida_str, data_volta_str = None, None
+    
+    # Monta uma mensagem de notificação clara
+    nome_cliente = parametros.get('person', {}).get('name', 'Não informado')
+    origem = parametros.get('origem', {}).get('original', 'N/D')
+    destino = parametros.get('destino', {}).get('original', 'N/D')
+    
+    data_ida_str = "N/D"
     data_ida_obj = parametros.get('data_ida', {})
     if isinstance(data_ida_obj, dict):
-        data_ida_str = f"{int(data_ida_obj.get('year'))}-{int(data_ida_obj.get('month')):02d}-{int(data_ida_obj.get('day')):02d}"
-    
-    data_volta_obj = parametros.get('data_volta')
-    if isinstance(data_volta_obj, dict):
-        data_volta_str = f"{int(data_volta_obj.get('year'))}-{int(data_volta_obj.get('month')):02d}-{int(data_volta_obj.get('day')):02d}"
-    
-    timestamp_contato = datetime.now(pytz.timezone("America/Recife")).isoformat()
-    
-    origem_nome = parametros.get('origem', {}).get('original', '')
-    destino_nome = parametros.get('destino', {}).get('original', '')
+        data_ida_str = f"{int(data_ida_obj.get('day'))}/{int(data_ida_obj.get('month'))}"
 
-    dados_para_notion = {
-        "data_contato": timestamp_contato, "nome_cliente": nome_cliente, "whatsapp_cliente": numero_cliente,
-        "tipo_viagem": "Passagem Aérea", "origem_destino": f"{origem_nome} → {destino_nome}",
-        "data_ida": data_ida_str, "data_volta": data_volta_str, "qtd_passageiros": str(parametros.get('passageiros', '')),
-        "perfil_viagem": parametros.get('perfil_viagem', ''), "preferencias": parametros.get('preferencias', '')
-    }
+    mensagem_notificacao = (
+        f"🔔 *Novo Lead Recebido pela Vivi!* 🔔\n\n"
+        f"*Cliente:* {nome_cliente}\n"
+        f"*Trecho:* {origem} → {destino}\n"
+        f"*Data de Ida:* {data_ida_str}\n\n"
+        f"Entrar em contato para continuar o atendimento."
+    )
     
-    print(f"📄 TRABALHADOR: Enviando para o Notion: {dados_para_notion}")
-    
-    _, status_code = create_notion_page(dados_para_notion)
-    
-    if 200 <= status_code < 300:
-        print("✅ TRABALHADOR: Tarefa concluída. Página criada no Notion.")
-        return "OK", 200
-    else:
-        print(f"🚨 TRABALHADOR: Falha ao criar página no Notion. Status: {status_code}.")
-        # Retorna um erro 500 para que o Cloud Tasks possa tentar novamente se configurado.
-        return "Erro ao criar página no Notion", 500
+    # Configura e envia a mensagem via Twilio
+    try:
+        account_sid = os.getenv("TWILIO_ACCOUNT_SID")
+        auth_token = os.getenv("TWILIO_AUTH_TOKEN")
+        twilio_client = Client(account_sid, auth_token)
+
+        message = twilio_client.messages.create(
+            from_=os.getenv("TWILIO_WHATSAPP_FROM"),
+            body=mensagem_notificacao,
+            to=os.getenv("MEU_WHATSAPP_TO")
+        )
+        print(f"✅ Notificação por WhatsApp enviada com sucesso! SID: {message.sid}")
+        return "OK", 200 # Informa ao Cloud Tasks que a tarefa foi um sucesso
+
+    except Exception as e:
+        logger.exception("🚨 Falha ao enviar notificação por WhatsApp via Twilio: %s", e)
+        # Retorna um erro para que o Cloud Tasks possa tentar novamente (se configurado na fila)
+        return "Erro ao enviar WhatsApp", 500
