@@ -1,3 +1,4 @@
+# Dockerfile (VERSÃO SÍNCRONA E CORRETA)
 # Usa a imagem oficial do Python 3.12 como base.
 FROM python:3.12-slim
 
@@ -15,4 +16,14 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # Inicia o servidor Gunicorn para servir nossa aplicação Flask ('app') a partir do arquivo 'main'.
-CMD exec gunicorn --bind :$PORT --workers 1 --threads 8 --timeout 0 main:app
+CMD ["functions-framework", "--target=vivi_webhook", "--port=8080"]
+
+
+
+
+
+
+
+
+
+
