@@ -118,7 +118,8 @@ def processar_tarefa():
         if not all([account_sid, auth_token]):
             raise ValueError("Credenciais do Twilio (SID ou TOKEN) não encontradas nas variáveis de ambiente.")
 
-        twilio_client = Client(account_sid, auth_token)
+        # Cria uma instância LOCAL do cliente com as credenciais corretas
+        twilio_client_local = Client(account_sid, auth_token)
 
         template_sid = os.getenv("TEMPLATE_SID")
         from_number = os.getenv("TWILIO_WHATSAPP_FROM")
@@ -127,7 +128,7 @@ def processar_tarefa():
         if not all([template_sid, from_number, to_number]):
             raise ValueError("Uma ou mais variáveis do Twilio (TEMPLATE_SID, FROM, TO) não foram configuradas.")
 
-        message = twilio_client.messages.create(
+        message = twilio_client_local.messages.create( # Usa o cliente local
             content_sid=template_sid,
             from_=from_number,
             content_variables=content_variables,
