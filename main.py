@@ -91,43 +91,47 @@ def vivi_webhook():
 # --- PORTA DE ENTRADA 2: Rota para o Trabalhador do Cloud Tasks ---
 @app.route('/processar-tarefa', methods=['POST'])
 def processar_tarefa():
-    """
-    Função "TRABALHADOR": Chamada pelo Cloud Tasks para enviar a notificação.
-    """
-    print("👷 TRABALHADOR: Tarefa recebida do Cloud Tasks. Preparando para enviar WhatsApp...")
-    
+    print("👷 TRABALHADOR: Tarefa recebida. Preparando para enviar WhatsApp...")
+
     task_payload = request.get_json(silent=True)
     if not task_payload:
         print("🚨 TRABALHADOR: Corpo da tarefa inválido.")
         return "Corpo da tarefa inválido.", 400
 
     parametros = task_payload.get('sessionInfo', {}).get('parameters', {})
-    
-    # Prepara as variáveis para o template do WhatsApp
+
     nome_cliente = parametros.get('person', {}).get('name', 'Não informado')
     origem = parametros.get('origem', {}).get('original', 'N/D')
     destino = parametros.get('destino', {}).get('original', 'N/D')
     detalhes_viagem = f"{origem} → {destino}"
 
     content_variables = json.dumps({
-        '1': nome_cliente,
-        '2': "Passagem Aérea",
-        '3': detalhes_viagem
+        '1': nome_cliente, '2': "Passagem Aérea", '3': detalhes_viagem
     })
 
     try:
+        # --- CORREÇÃO AQUI ---
+        # Lê as credenciais e inicializa o cliente DENTRO da função
         account_sid = os.getenv("TWILIO_ACCOUNT_SID")
         auth_token = os.getenv("TWILIO_AUTH_TOKEN")
+
+        if not all([account_sid, auth_token]):
+            raise ValueError("Credenciais do Twilio (SID ou TOKEN) não encontradas nas variáveis de ambiente.")
+
         twilio_client = Client(account_sid, auth_token)
 
-        # IMPORTANTE: Substitua pelo SID do seu template aprovado!
-        template_sid = "HXcae96a3b4d4f7c754df1d850be70038e" 
+        template_sid = os.getenv("TEMPLATE_SID")
+        from_number = os.getenv("TWILIO_WHATSAPP_FROM")
+        to_number = os.getenv("MEU_WHATSAPP_TO")
+
+        if not all([template_sid, from_number, to_number]):
+            raise ValueError("Uma ou mais variáveis do Twilio (TEMPLATE_SID, FROM, TO) não foram configuradas.")
 
         message = twilio_client.messages.create(
             content_sid=template_sid,
-            from_=os.getenv("TWILIO_WHATSAPP_FROM"),
+            from_=from_number,
             content_variables=content_variables,
-            to=os.getenv("MEU_WHATSAPP_TO")
+            to=to_number
         )
         print(f"✅ Notificação por WhatsApp enviada com sucesso! SID: {message.sid}")
         return "OK", 200
