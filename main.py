@@ -6,6 +6,7 @@ import pytz
 from datetime import datetime
 
 import functions_framework
+from flask import jsonify
 import psycopg2
 
 from notion_utils import create_notion_page
