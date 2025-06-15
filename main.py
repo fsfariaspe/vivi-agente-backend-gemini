@@ -85,14 +85,14 @@ def vivi_webhook():
         return jsonify({"fulfillment_response": {"messages": [{"text": {"text": [texto_resposta]}}]}})
 
     elif tag == 'atualizar_nome_cliente':
+        print("ℹ️ ATENDENTE: Recebida tag 'atualizar_nome_cliente'.")
         nome_corrigido = parametros.get('person', {}).get('name')
         if nome_corrigido:
+            # A função salvar_conversa já atualiza o nome se o número existir
             salvar_conversa(numero_cliente, f"O cliente corrigiu o nome para: {nome_corrigido}.", nome_corrigido)
-            print(f"✅ Nome corrigido para '{nome_corrigido}' para o número {numero_cliente}.")
-        return jsonify({}) # Retorna uma resposta vazia para o Dialogflow continuar o fluxo
-    # --- Resposta padrão para outras tags ---
-    texto_resposta = "Desculpe, não entendi o que preciso fazer."
-    return jsonify({"fulfillment_response": {"messages": [{"text": {"text": [texto_resposta]}}]}})
+            print(f"✅ Nome corrigido para '{nome_corrigido}' no banco de dados.")
+        # Retorna uma resposta vazia para que o Dialogflow use a fala definida na própria rota.
+        return jsonify({})
 
 
 # --- PORTA DE ENTRADA 2: Rota para o Trabalhador do Cloud Tasks ---
