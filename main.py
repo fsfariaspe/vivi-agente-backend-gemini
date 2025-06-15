@@ -55,6 +55,38 @@ def vivi_webhook():
         print(f"✅ Nome '{nome_cliente}' salvo para o número {numero_cliente}.")
         return jsonify({})
 
+    elif tag == 'definir_data':
+        print("ℹ️ ATENDENTE: Recebida tag 'definir_data'. Processando correção de data...")
+        
+        # Pega o parâmetro 'data_capturada' que vem da intent
+        data_capturada = request_json.get('fulfillmentInfo', {}).get('parameters', {}).get('data_capturada', {})
+        
+        # Pega o parâmetro de sessão que nos diz qual data corrigir (usando a variável correta 'parametros')
+        campo_para_corrigir = parametros.get('campo_em_correcao', '')
+
+        if data_capturada and 'year' in data_capturada and campo_para_corrigir in ['data_ida', 'data_volta']:
+            # Prepara o objeto de data completo
+            date_object = {
+                "day": data_capturada.get("day"),
+                "month": data_capturada.get("month"),
+                "year": data_capturada.get("year")
+            }
+            # Atualiza o campo correto na sessão (usando a variável correta 'parametros')
+            parametros[campo_para_corrigir] = date_object
+            print(f"✅ Webhook: Parâmetro '{campo_para_corrigir}' atualizado para {date_object}")
+        
+        # Limpa as flags de correção (usando a variável correta 'parametros')
+        parametros.pop('modo_correcao', None)
+        parametros.pop('campo_em_correcao', None)
+        
+        # Monta a resposta para o Dialogflow, devolvendo os parâmetros atualizados
+        response = {
+            "sessionInfo": {
+                "parameters": parametros
+            }
+        }
+        return jsonify(response)
+
     # --- Lógica para criar a tarefa assíncrona ---
     elif tag == 'salvar_dados_voo_no_notion': # A tag continua com o mesmo nome, mas a ação agora é outra
         print("ℹ️ ATENDENTE: Recebida tag 'salvar_dados_voo_no_notion'. Criando tarefa para notificação...")
