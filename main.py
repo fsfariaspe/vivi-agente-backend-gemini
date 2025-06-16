@@ -142,6 +142,11 @@ def processar_tarefa():
 
     parametros = task_payload.get('sessionInfo', {}).get('parameters', {})
 
+    # --- Mova a extração de variáveis para cá e defina valores padrão ---
+    origem_nome = parametros.get('origem', {}).get('original', 'Não informado')
+    destino_nome = parametros.get('destino', {}).get('original', 'Não informado')
+    nome_cliente = 'Não informado' # Valor padrão
+
     # --- 1. Lógica do NOTION ---
     try:
         print("📄 Etapa 1: Preparando dados para o Notion...")
@@ -154,17 +159,18 @@ def processar_tarefa():
         nome_cliente = buscar_nome_cliente(numero_cliente) or parametros.get('person', {}).get('name', 'Não informado')
 
         data_ida_str, data_volta_str = None, None
+        
+        # --- Verificação de segurança para data_ida ---
         data_ida_obj = parametros.get('data_ida', {})
-        if isinstance(data_ida_obj, dict):
+        if isinstance(data_ida_obj, dict) and all(k in data_ida_obj for k in ['year', 'month', 'day']):
             data_ida_str = f"{int(data_ida_obj.get('year'))}-{int(data_ida_obj.get('month')):02d}-{int(data_ida_obj.get('day')):02d}"
 
+        # --- Verificação de segurança para data_volta ---
         data_volta_obj = parametros.get('data_volta')
-        if isinstance(data_volta_obj, dict):
+        if isinstance(data_volta_obj, dict) and all(k in data_volta_obj for k in ['year', 'month', 'day']):
             data_volta_str = f"{int(data_volta_obj.get('year'))}-{int(data_volta_obj.get('month')):02d}-{int(data_volta_obj.get('day')):02d}"
 
         timestamp_contato = datetime.now(pytz.timezone("America/Recife")).isoformat()
-        origem_nome = parametros.get('origem', {}).get('original', '')
-        destino_nome = parametros.get('destino', {}).get('original', '')
 
         dados_para_notion = {
             "data_contato": timestamp_contato,
