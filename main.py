@@ -248,7 +248,7 @@ def gerenciar_dados():
         request_json = request.get_json(silent=True)
         tag = request_json.get("fulfillmentInfo", {}).get("tag", "")
         parametros_sessao = request_json.get("sessionInfo", {}).get("parameters", {})
-
+        #teste de alteração para a branch feature/adicionar-cruzeiros
         print(f"ℹ️ Webhook /gerenciar-dados recebido com a tag: {tag}")
 
         # As tags agora nos dizem exatamente o que fazer
