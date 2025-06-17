@@ -29,11 +29,15 @@ NOTION_PROPERTY_MAP = {
     "perfil_viagem": "Perfil de Viagem",
     "whatsapp_cliente": "WhatsApp",
     "data_contato": "Data de Criação", # ou o nome exato da sua coluna
+    # --- NOVAS PROPRIEDADES PARA CRUZEIROS ---
+    "periodo_desejado": "Período Desejado",
+    "observacoes_adicionais": "Observações Adicionais",
 }
 
 def create_notion_page(data: dict) -> tuple[Response, int]:
     """Cria uma página no Notion com os dados fornecidos."""
 
+    # Propriedades comuns a ambos os tipos de viagem
     properties = {
         NOTION_PROPERTY_MAP["nome_cliente"]: {
             "title": [{"text": {"content": data.get("nome_cliente", "Não informado")}}]
@@ -52,30 +56,41 @@ def create_notion_page(data: dict) -> tuple[Response, int]:
         },
     }
 
-    # --- Validações para evitar erro 400 ---
+    # --- Validações e campos específicos ---
 
-    # Adiciona status apenas se houver um valor válido
     status = data.get("status", "Aguardando Pesquisa")
     if status:
         properties[NOTION_PROPERTY_MAP["status"]] = {"select": {"name": status}}
 
-    # Adiciona tipo de viagem apenas se houver um valor válido
-    tipo_viagem = data.get("tipo_viagem", "Passagem Aérea")
+    tipo_viagem = data.get("tipo_viagem", "Não especificado")
     if tipo_viagem:
         properties[NOTION_PROPERTY_MAP["tipo_viagem"]] = {"select": {"name": tipo_viagem}}
 
-    # Adiciona perfil de viagem apenas se houver um valor válido
     perfil_viagem = data.get("perfil_viagem")
     if perfil_viagem:
         properties[NOTION_PROPERTY_MAP["perfil_viagem"]] = {"select": {"name": perfil_viagem}}
 
-    # Adiciona datas apenas se forem válidas
+    # Campos de Data (apenas para Passagem Aérea)
     if data.get("data_ida"):
         properties[NOTION_PROPERTY_MAP["data_ida"]] = {"date": {"start": data.get("data_ida")}}
 
     if data.get("data_volta"):
         properties[NOTION_PROPERTY_MAP["data_volta"]] = {"date": {"start": data.get("data_volta")}}
 
+    # --- NOVA LÓGICA PARA CAMPOS DE CRUZEIRO ---
+    periodo_desejado = data.get("periodo_desejado")
+    if periodo_desejado:
+        properties[NOTION_PROPERTY_MAP["periodo_desejado"]] = {
+            "rich_text": [{"text": {"content": periodo_desejado}}]
+        }
+
+    observacoes_adicionais = data.get("observacoes_adicionais")
+    if observacoes_adicionais:
+        properties[NOTION_PROPERTY_MAP["observacoes_adicionais"]] = {
+            "rich_text": [{"text": {"content": observacoes_adicionais}}]
+        }
+    # ----------------------------------------------
+    
     payload = {
         "parent": {"database_id": NOTION_DATABASE_ID},
         "properties": properties
@@ -83,14 +98,11 @@ def create_notion_page(data: dict) -> tuple[Response, int]:
 
     try:
         response = requests.post(NOTION_API_URL, headers=HEADERS, json=payload)
-        # Imprime a resposta do Notion para depuração, em caso de erro
         if response.status_code != 200:
             logger.error("NOTION ERROR RESPONSE: %s", response.text)
         response.raise_for_status()
         logger.info("✅ Página criada no Notion com sucesso!")
-        # O retorno pode ser simplificado, pois o main.py já lida com a resposta
         return jsonify(response.json()), response.status_code
     except requests.exceptions.RequestException as e:
-        # Loga o erro completo para facilitar a depuração
         logger.exception("❌ Erro ao enviar para o Notion: %s", e)
         return jsonify({"erro": str(e)}), e.response.status_code if e.response else 500

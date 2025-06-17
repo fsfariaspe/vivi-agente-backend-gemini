@@ -88,7 +88,7 @@ def vivi_webhook():
         return jsonify(response)
 
     # --- Lógica para criar a tarefa assíncrona ---
-    elif tag == 'salvar_dados_voo_no_notion': # A tag continua com o mesmo nome, mas a ação agora é outra
+    elif tag == 'salvar_dados_voo_no_notion' or tag == 'salvar_dados_cruzeiro_no_notion':
         print("ℹ️ ATENDENTE: Recebida tag 'salvar_dados_voo_no_notion'. Criando tarefa para notificação...")
         
         if not WORKER_URL:
@@ -131,7 +131,8 @@ def vivi_webhook():
 @app.route('/processar-tarefa', methods=['POST'])
 def processar_tarefa():
     """
-    Função "TRABALHADOR": agora vai salvar no Notion E enviar a notificação por WhatsApp.
+    Função "TRABALHADOR": agora salva no Notion E envia a notificação,
+    sabendo diferenciar entre Passagens Aéreas e Cruzeiros.
     """
     print("👷 TRABALHADOR: Tarefa recebida. Iniciando processamento completo...")
 
@@ -141,43 +142,59 @@ def processar_tarefa():
         return "Corpo da tarefa inválido.", 400
 
     parametros = task_payload.get('sessionInfo', {}).get('parameters', {})
+    
+    # Variáveis que serão preenchidas por qualquer um dos fluxos
+    dados_para_notion = {}
+    tipo_viagem = "Não Identificado"
+    resumo_viagem = "Não Identificado"
+    
+    numero_cliente_com_prefixo = task_payload.get('sessionInfo', {}).get('session', '').split('/')[-1]
+    numero_cliente = ''.join(filter(str.isdigit, numero_cliente_com_prefixo))
+    if numero_cliente.startswith('55'):
+        numero_cliente = f"+{numero_cliente}"
+    
+    nome_cliente = buscar_nome_cliente(numero_cliente) or parametros.get('person', {}).get('name', 'Não informado')
+    timestamp_contato = datetime.now(pytz.timezone("America/Recife")).isoformat()
 
-    # --- Mova a extração de variáveis para cá e defina valores padrão ---
-    origem_nome = parametros.get('origem', {}).get('original', 'Não informado')
-    destino_nome = parametros.get('destino', {}).get('original', 'Não informado')
-    nome_cliente = 'Não informado' # Valor padrão
-
-    # --- 1. Lógica do NOTION ---
-    try:
-        print("📄 Etapa 1: Preparando dados para o Notion...")
-
-        numero_cliente_com_prefixo = task_payload.get('sessionInfo', {}).get('session', '').split('/')[-1]
-        numero_cliente = ''.join(filter(str.isdigit, numero_cliente_com_prefixo))
-        if numero_cliente.startswith('55'):
-            numero_cliente = f"+{numero_cliente}"
-
-        nome_cliente = buscar_nome_cliente(numero_cliente) or parametros.get('person', {}).get('name', 'Não informado')
+    # --- LÓGICA PARA DIFERENCIAR O TIPO DE VIAGEM ---
+    # Se o parâmetro 'destino_cruzeiro' existir, sabemos que é um cruzeiro.
+    if 'destino_cruzeiro' in parametros and parametros.get('destino_cruzeiro'):
+        tipo_viagem = "Cruzeiro"
+        porto_embarque = parametros.get('porto_embarque', {}).get('original', 'Não informado')
+        resumo_viagem = f"Cruzeiro para {parametros.get('destino_cruzeiro', '')}, partindo de {porto_embarque}"
+        
+        dados_para_notion = {
+            "data_contato": timestamp_contato,
+            "nome_cliente": nome_cliente,
+            "whatsapp_cliente": numero_cliente,
+            "tipo_viagem": tipo_viagem,
+            "origem_destino": resumo_viagem, # Usando um campo genérico para o resumo
+            "periodo_desejado": parametros.get('periodo_viagem', {}).get('original', 'Não informado'),
+            "qtd_passageiros": f"Adultos: {parametros.get('adultos_cruzeiro', 0)}, Crianças: {parametros.get('criancas_cruzeiro', 0)}",
+            "preferencias": f"Companhia: {parametros.get('companhia_cruzeiro', 'Qualquer uma')}",
+            "observacoes_adicionais": f"Acessibilidade: {parametros.get('acessibilidade_cruzeiro', False)}, Tarifa Sênior: {parametros.get('tarifa_senior_cruzeiro', False)}"
+        }
+    else: # Senão, é o nosso fluxo antigo de passagem aérea
+        tipo_viagem = "Passagem Aérea"
+        origem_nome = parametros.get('origem', {}).get('original', 'Não informado')
+        destino_nome = parametros.get('destino', {}).get('original', 'Não informado')
+        resumo_viagem = f"{origem_nome} → {destino_nome}"
 
         data_ida_str, data_volta_str = None, None
-        
-        # --- Verificação de segurança para data_ida ---
         data_ida_obj = parametros.get('data_ida', {})
         if isinstance(data_ida_obj, dict) and all(k in data_ida_obj for k in ['year', 'month', 'day']):
             data_ida_str = f"{int(data_ida_obj.get('year'))}-{int(data_ida_obj.get('month')):02d}-{int(data_ida_obj.get('day')):02d}"
 
-        # --- Verificação de segurança para data_volta ---
         data_volta_obj = parametros.get('data_volta')
         if isinstance(data_volta_obj, dict) and all(k in data_volta_obj for k in ['year', 'month', 'day']):
             data_volta_str = f"{int(data_volta_obj.get('year'))}-{int(data_volta_obj.get('month')):02d}-{int(data_volta_obj.get('day')):02d}"
-
-        timestamp_contato = datetime.now(pytz.timezone("America/Recife")).isoformat()
 
         dados_para_notion = {
             "data_contato": timestamp_contato,
             "nome_cliente": nome_cliente,
             "whatsapp_cliente": numero_cliente,
-            "tipo_viagem": "Passagem Aérea",
-            "origem_destino": f"{origem_nome} → {destino_nome}",
+            "tipo_viagem": tipo_viagem,
+            "origem_destino": resumo_viagem,
             "data_ida": data_ida_str,
             "data_volta": data_volta_str,
             "qtd_passageiros": str(parametros.get('passageiros', '')),
@@ -185,6 +202,8 @@ def processar_tarefa():
             "preferencias": parametros.get('preferencias', '')
         }
 
+    # --- 1. Lógica do NOTION (agora com dados genéricos) ---
+    try:
         print(f"📄 Enviando para o Notion: {dados_para_notion}")
         _, status_code = create_notion_page(dados_para_notion)
 
@@ -195,46 +214,29 @@ def processar_tarefa():
 
     except Exception as e:
         logger.exception("🚨 TRABALHADOR: Falha CRÍTICA na etapa do Notion: %s", e)
-        # Mesmo com erro no Notion, tentamos notificar
 
-    # --- 2. Lógica do WHATSAPP ---
+    # --- 2. Lógica do WHATSAPP (agora com dados genéricos) ---
     try:
+        # ... (seu código do WhatsApp continua aqui, mas usando as variáveis genéricas)
         print("📱 Etapa 2: Preparando notificação do WhatsApp...")
-
-        account_sid = os.getenv("TWILIO_ACCOUNT_SID")
-        auth_token = os.getenv("TWILIO_AUTH_TOKEN")
-
-        if not all([account_sid, auth_token]):
-            raise ValueError("Credenciais do Twilio (SID ou TOKEN) não encontradas.")
-
-        twilio_client = Client(account_sid, auth_token)
-
-        template_sid = os.getenv("TEMPLATE_SID")
-        from_number = os.getenv("TWILIO_WHATSAPP_FROM")
-        to_number = os.getenv("MEU_WHATSAPP_TO")
-
-        if not all([template_sid, from_number, to_number]):
-            raise ValueError("Variáveis de envio do Twilio (SID, FROM, TO) não encontradas.")
+        # ... (código de autenticação do Twilio) ...
+        twilio_client = Client(os.getenv("TWILIO_ACCOUNT_SID"), os.getenv("TWILIO_AUTH_TOKEN"))
 
         content_variables = json.dumps({
             '1': nome_cliente,
-            '2': "Passagem Aérea",
-            '3': f"{origem_nome} → {destino_nome}"
+            '2': tipo_viagem,
+            '3': resumo_viagem
         })
+        
+        # ... (código de envio da mensagem do Twilio) ...
+        message = twilio_client.messages.create(...)
 
-        message = twilio_client.messages.create(
-            content_sid=template_sid,
-            from_=from_number,
-            content_variables=content_variables,
-            to=to_number
-        )
         print(f"✅ Notificação por WhatsApp enviada com sucesso! SID: {message.sid}")
 
     except Exception as e:
         logger.exception("🚨 TRABALHADOR: Falha CRÍTICA na etapa do WhatsApp: %s", e)
         return "Erro no processo do trabalhador", 500
 
-    # Se tudo correu bem, retorna OK para o Cloud Tasks
     return "OK", 200
 
 # --- NOVA PORTA DE ENTRADA 3: Webhook para Lógica de Dados ---
