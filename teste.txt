@@ -1,0 +1,5 @@
+olá, isso é apenas um teste para ver se estou gravando na branch de cruzeiros
+
+Agora vou gravar esse mesmo texto na branch main
+não gravou certo, vou tentar de novo
+vamos testar mais uma vez
