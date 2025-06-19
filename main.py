@@ -272,27 +272,29 @@ def gerenciar_dados():
                     print(f"✅ Webhook: Parâmetro 'data_volta' atualizado para {objeto_data}")
         
         # --- NOVA LÓGICA PARA NAVEGAÇÃO DE RETORNO DO SUBFLUXO ---
-        elif tag == 'retornar_para_resumo':
-            print("ℹ️ Webhook: Recebida tag 'retornar_para_resumo'. Navegando de volta...")
+        elif tag == 'retornar_do_subfluxo':
+            print("ℹ️ Webhook: Recebida tag 'retornar_do_subfluxo'. Roteando a conversa...")
             
-            # Pega o endereço de retorno que salvamos na sessão
-            pagina_de_retorno_id = parametros_sessao.get("pagina_retorno")
-
-            # Limpamos a flag de correção para não entrar em loop
+            # Limpa as flags de correção para não entrar em loop
             parametros_sessao.pop('pagina_retorno', None)
+            parametros_sessao.pop('campo_a_corrigir', None)
+
+            # Para um novo usuário, o próximo passo é selecionar o produto
+            # NOTA: Precisamos do ID completo da página, que você pode obter na interface do Dialogflow
+            id_pagina_selecionar_produto = "projects/custom-point-462423-n7/locations/us-central1/agents/ffc67c2a-d508-4f42-9149-9599b680f23e/flows/00000000-0000-0000-0000-000000000000/pages/dafce3b3-a0ef-4116-b05a-cb9d058881d3"
             
-            if pagina_de_retorno_id:
-                # Monta a resposta que força a transição para a página de resumo correta
-                resposta = {
-                    "target_page": pagina_de_retorno_id,
-                    "sessionInfo": { "parameters": parametros_sessao }
+            resposta = {
+                "target_page": id_pagina_selecionar_produto, # Força a transição para a próxima página
+                "sessionInfo": {
+                    "parameters": parametros_sessao
                 }
-                return jsonify(resposta)
-            else:
-                # Fallback de segurança: se não houver página de retorno, encerra o fluxo
-                print("⚠️ Webhook: Página de retorno não encontrada na sessão. Encerrando fluxo.")
-                # Retorna uma resposta que simplesmente encerra o subfluxo, se aplicável.
-                return jsonify({}) 
+            }
+            return jsonify(resposta)
+        else:
+            # Fallback de segurança: se não houver página de retorno, encerra o fluxo
+            print("⚠️ Webhook: Página de retorno não encontrada na sessão. Encerrando fluxo.")
+            # Retorna uma resposta que simplesmente encerra o subfluxo, se aplicável.
+            return jsonify({}) 
         
         # Monta a resposta padrão para o Dialogflow, devolvendo os parâmetros atualizados
         resposta_final = {
