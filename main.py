@@ -243,46 +243,65 @@ def processar_tarefa():
 @app.route('/gerenciar-dados', methods=['POST'])
 def gerenciar_dados():
     """
-    Webhook para manipular a lógica de dados que é complexa
-    para ser feita com presets no Dialogflow CX, como a atribuição de datas.
+    Webhook para manipular a lógica de dados e de navegação que
+    são complexas para serem feitas apenas no Dialogflow CX.
     """
     try:
         request_json = request.get_json(silent=True)
         tag = request_json.get("fulfillmentInfo", {}).get("tag", "")
         parametros_sessao = request_json.get("sessionInfo", {}).get("parameters", {})
-        #teste de alteração para a branch feature/adicionar-cruzeiros
+
         print(f"ℹ️ Webhook /gerenciar-dados recebido com a tag: {tag}")
 
-        # As tags agora nos dizem exatamente o que fazer
+        # Lógica para definir as datas (durante a coleta no fluxo normal)
         if tag in ["definir_data_ida", "definir_data_volta"]:
-            
             data_capturada = request_json.get("fulfillmentInfo", {}).get("parameters", {}).get("data_capturada", {})
 
             if data_capturada and 'year' in data_capturada:
-                # Prepara o objeto de data completo que será salvo na sessão
                 objeto_data = {
                     "day": data_capturada.get("day"),
                     "month": data_capturada.get("month"),
                     "year": data_capturada.get("year")
                 }
                 
-                # Atualiza o campo correto com base na tag
                 if tag == "definir_data_ida":
                     parametros_sessao["data_ida"] = objeto_data
                     print(f"✅ Webhook: Parâmetro 'data_ida' atualizado para {objeto_data}")
                 elif tag == "definir_data_volta":
                     parametros_sessao["data_volta"] = objeto_data
                     print(f"✅ Webhook: Parâmetro 'data_volta' atualizado para {objeto_data}")
+        
+        # --- NOVA LÓGICA PARA NAVEGAÇÃO DE RETORNO DO SUBFLUXO ---
+        elif tag == 'retornar_para_resumo':
+            print("ℹ️ Webhook: Recebida tag 'retornar_para_resumo'. Navegando de volta...")
+            
+            # Pega o endereço de retorno que salvamos na sessão
+            pagina_de_retorno_id = parametros_sessao.get("pagina_retorno")
 
-        # Monta a resposta para o Dialogflow, devolvendo os parâmetros atualizados
-        resposta = {
+            # Limpamos a flag de correção para não entrar em loop
+            parametros_sessao.pop('pagina_retorno', None)
+            
+            if pagina_de_retorno_id:
+                # Monta a resposta que força a transição para a página de resumo correta
+                resposta = {
+                    "target_page": pagina_de_retorno_id,
+                    "sessionInfo": { "parameters": parametros_sessao }
+                }
+                return jsonify(resposta)
+            else:
+                # Fallback de segurança: se não houver página de retorno, encerra o fluxo
+                print("⚠️ Webhook: Página de retorno não encontrada na sessão. Encerrando fluxo.")
+                # Retorna uma resposta que simplesmente encerra o subfluxo, se aplicável.
+                return jsonify({}) 
+        
+        # Monta a resposta padrão para o Dialogflow, devolvendo os parâmetros atualizados
+        resposta_final = {
             "sessionInfo": {
                 "parameters": parametros_sessao
             }
         }
-        return jsonify(resposta)
+        return jsonify(resposta_final)
 
     except Exception as e:
         logging.error(f"❌ Erro no webhook /gerenciar-dados: {e}")
-        # Em caso de erro, retorna uma resposta vazia para não quebrar a conversa
         return jsonify({})
