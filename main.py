@@ -272,19 +272,30 @@ def gerenciar_dados():
                     print(f"✅ Webhook: Parâmetro 'data_volta' atualizado para {objeto_data}")
         
         # --- NOVA LÓGICA PARA NAVEGAÇÃO DE RETORNO DO SUBFLUXO ---
-        elif tag == 'retornar_do_subfluxo':
-            print("ℹ️ Webhook: Recebida tag 'retornar_do_subfluxo'. Roteando a conversa...")
+        elif tag == 'retornar_para_resumo': # Renomeei a tag para consistência
+            print("ℹ️ Webhook: Recebida tag 'retornar_para_resumo'. Roteando a conversa...")
             
-            # Limpa as flags de correção para não entrar em loop
+            # Pega o endereço de retorno que salvamos na sessão
+            pagina_de_retorno_id = parametros_sessao.get("pagina_retorno")
+
+            # Limpamos as flags de correção para não entrar em loop
             parametros_sessao.pop('pagina_retorno', None)
             parametros_sessao.pop('campo_a_corrigir', None)
 
-            # Para um novo usuário, o próximo passo é selecionar o produto
-            # NOTA: Precisamos do ID completo da página, que você pode obter na interface do Dialogflow
-            id_pagina_selecionar_produto = "projects/custom-point-462423-n7/locations/us-central1/agents/ffc67c2a-d508-4f42-9149-9599b680f23e/flows/00000000-0000-0000-0000-000000000000/pages/dafce3b3-a0ef-4116-b05a-cb9d058881d3"
+            # --- NOVA LÓGICA DE BIFURCAÇÃO ---
+            if pagina_de_retorno_id:
+                # Caso de CORREÇÃO: volta para a página de resumo que o chamou
+                target_page_id = pagina_de_retorno_id
+                print(f"✅ Roteando para página de retorno: {target_page_id}")
+            else:
+                # Caso de FLUXO NORMAL: envia para a próxima página do fluxo principal
+                # Obtenha o ID completo da sua 'pagina_selecionar_produto' no Dialogflow
+                target_page_id = "projects/custom-point-462423-n7/locations/us-central1/agents/ffc67c2a-d508-4f42-9149-9599b680f23e/flows/00000000-0000-0000-0000-000000000000/pages/dafce3b3-a0ef-4116-b05a-cb9d058881d3"
+                print(f"✅ Roteando para próxima página do fluxo normal: {target_page_id}")
             
+            # Monta a resposta que força a transição
             resposta = {
-                "target_page": id_pagina_selecionar_produto, # Força a transição para a próxima página
+                "target_page": target_page_id,
                 "sessionInfo": {
                     "parameters": parametros_sessao
                 }
