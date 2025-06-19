@@ -240,11 +240,12 @@ def processar_tarefa():
     return "OK", 200
 
 # --- NOVA PORTA DE ENTRADA 3: Webhook para Lógica de Dados ---
+# Em main.py, substitua a função inteira por esta:
+
 @app.route('/gerenciar-dados', methods=['POST'])
 def gerenciar_dados():
     """
-    Webhook para manipular a lógica de dados e de navegação que
-    são complexas para serem feitas apenas no Dialogflow CX.
+    Webhook para manipular a atribuição de parâmetros de data.
     """
     try:
         request_json = request.get_json(silent=True)
@@ -253,67 +254,19 @@ def gerenciar_dados():
 
         print(f"ℹ️ Webhook /gerenciar-dados recebido com a tag: {tag}")
 
-        # Lógica para definir as datas (durante a coleta no fluxo normal)
         if tag in ["definir_data_ida", "definir_data_volta"]:
             data_capturada = request_json.get("fulfillmentInfo", {}).get("parameters", {}).get("data_capturada", {})
-
             if data_capturada and 'year' in data_capturada:
-                objeto_data = {
-                    "day": data_capturada.get("day"),
-                    "month": data_capturada.get("month"),
-                    "year": data_capturada.get("year")
-                }
+                objeto_data = {"day": data_capturada.get("day"), "month": data_capturada.get("month"), "year": data_capturada.get("year")}
                 
                 if tag == "definir_data_ida":
                     parametros_sessao["data_ida"] = objeto_data
-                    print(f"✅ Webhook: Parâmetro 'data_ida' atualizado para {objeto_data}")
                 elif tag == "definir_data_volta":
                     parametros_sessao["data_volta"] = objeto_data
-                    print(f"✅ Webhook: Parâmetro 'data_volta' atualizado para {objeto_data}")
         
-        # --- NOVA LÓGICA PARA NAVEGAÇÃO DE RETORNO DO SUBFLUXO ---
-        elif tag == 'retornar_para_resumo': # Renomeei a tag para consistência
-            print("ℹ️ Webhook: Recebida tag 'retornar_para_resumo'. Roteando a conversa...")
-            
-            # Pega o endereço de retorno que salvamos na sessão
-            pagina_de_retorno_id = parametros_sessao.get("pagina_retorno")
-
-            # Limpamos as flags de correção para não entrar em loop
-            parametros_sessao.pop('pagina_retorno', None)
-            parametros_sessao.pop('campo_a_corrigir', None)
-
-            # --- NOVA LÓGICA DE BIFURCAÇÃO ---
-            if pagina_de_retorno_id:
-                # Caso de CORREÇÃO: volta para a página de resumo que o chamou
-                target_page_id = pagina_de_retorno_id
-                print(f"✅ Roteando para página de retorno: {target_page_id}")
-            else:
-                # Caso de FLUXO NORMAL: envia para a próxima página do fluxo principal
-                # Obtenha o ID completo da sua 'pagina_selecionar_produto' no Dialogflow
-                target_page_id = "projects/custom-point-462423-n7/locations/us-central1/agents/ffc67c2a-d508-4f42-9149-9599b680f23e/flows/00000000-0000-0000-0000-000000000000/pages/dafce3b3-a0ef-4116-b05a-cb9d058881d3"
-                print(f"✅ Roteando para próxima página do fluxo normal: {target_page_id}")
-            
-            # Monta a resposta que força a transição
-            resposta = {
-                "target_page": target_page_id,
-                "sessionInfo": {
-                    "parameters": parametros_sessao
-                }
-            }
-            return jsonify(resposta)
-        else:
-            # Fallback de segurança: se não houver página de retorno, encerra o fluxo
-            print("⚠️ Webhook: Página de retorno não encontrada na sessão. Encerrando fluxo.")
-            # Retorna uma resposta que simplesmente encerra o subfluxo, se aplicável.
-            return jsonify({}) 
-        
-        # Monta a resposta padrão para o Dialogflow, devolvendo os parâmetros atualizados
-        resposta_final = {
-            "sessionInfo": {
-                "parameters": parametros_sessao
-            }
-        }
-        return jsonify(resposta_final)
+        # A resposta agora apenas devolve os parâmetros atualizados, sem forçar navegação.
+        resposta = {"sessionInfo": {"parameters": parametros_sessao}}
+        return jsonify(resposta)
 
     except Exception as e:
         logging.error(f"❌ Erro no webhook /gerenciar-dados: {e}")
