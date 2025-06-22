@@ -103,8 +103,60 @@ def gerenciar_dados():
 # --- PORTA DE ENTRADA 3: O Trabalhador Assíncrono ---
 @app.route('/processar-tarefa', methods=['POST'])
 def processar_tarefa():
-    # ... (A função processar_tarefa que já corrigimos antes permanece aqui) ...
-    # ... (Ela não precisa de novas alterações) ...
+    """
+    Função "TRABALHADOR": Executa a lógica pesada de forma assíncrona.
+    INCLUI A NOVA LÓGICA DE CONVERSÃO DE DATAS.
+    """
     print("👷 TRABALHADOR: Tarefa recebida...")
-    # ... seu código robusto para Notion e WhatsApp
-    return "OK", 200
+    try:
+        dados_dialogflow = request.get_json(silent=True)
+        parametros = dados_dialogflow.get("sessionInfo", {}).get("parameters", {})
+        tag = dados_dialogflow.get('fulfillmentInfo', {}).get('tag', '')
+
+        # --- NOVA LÓGICA DE CONVERSÃO DE DATA ---
+        data_ida_str = parametros.get("data_ida")
+        if data_ida_str and isinstance(data_ida_str, str):
+            # Converte de DD/MM/AAAA para AAAA-MM-DD
+            data_ida_obj = datetime.strptime(data_ida_str, '%d/%m/%Y')
+            parametros['data_ida'] = data_ida_obj.strftime('%Y-%m-%d')
+            print(f"✅ Data de ida convertida para: {parametros['data_ida']}")
+
+        data_volta_str = parametros.get("data_volta")
+        if data_volta_str and isinstance(data_volta_str, str):
+            # Converte de DD/MM/AAAA para AAAA-MM-DD
+            data_volta_obj = datetime.strptime(data_volta_str, '%d/%m/%Y')
+            parametros['data_volta'] = data_volta_obj.strftime('%Y-%m-%d')
+            print(f"✅ Data de volta convertida para: {parametros['data_volta']}")
+        # --- FIM DA NOVA LÓGICA ---
+
+        # O restante da lógica para preparar os dados para o Notion e Twilio
+        # (Esta parte pode variar dependendo da sua implementação exata,
+        # mas o importante é que os 'parametros' agora têm as datas formatadas)
+
+        if tag == 'salvar_dados_voo_no_notion':
+            # Monta o payload para o Notion usando os parâmetros já processados
+            dados_notion = {
+                "nome_cliente": parametros.get("person", {}).get("name", parametros.get("person")),
+                "whatsapp_cliente": "Não Coletado", # Adicionar a lógica se coletar
+                "tipo_viagem": "Passagem Aérea",
+                "origem_destino": f"{parametros.get('origem', '')} → {parametros.get('destino', '')}",
+                "data_ida": parametros.get('data_ida'),
+                "data_volta": parametros.get('data_volta'),
+                "qtd_passageiros": str(parametros.get('passageiros', '')),
+                "perfil_viagem": parametros.get('perfil_viagem'),
+                "preferencias": parametros.get('preferencias'),
+                "status": "Aguardando Pesquisa"
+            }
+            create_notion_page(dados_notion)
+
+        # Lógica do Twilio (se necessário)
+        # client = Client(os.getenv("TWILIO_ACCOUNT_SID"), os.getenv("TWILIO_AUTH_TOKEN"))
+        # ...
+        
+        print("✅ TRABALHADOR: Tarefa processada com sucesso!")
+        return "OK", 200
+
+    except Exception as e:
+        print(f"❌ TRABALHADOR: Erro ao processar tarefa: {e}")
+        logging.error(f"Erro detalhado no trabalhador: {e}", exc_info=True)
+        return "Erro no processamento", 500
