@@ -13,6 +13,7 @@ from notion_utils import create_notion_page
 from db import salvar_conversa, buscar_nome_cliente
 
 # --- Configurações Iniciais ---
+logging.basicConfig(level=logging.INFO) # Habilita logging detalhado
 logger = logging.getLogger(__name__)
 app = Flask(__name__)
 
@@ -35,7 +36,7 @@ def vivi_webhook():
     tag = request_json.get('fulfillmentInfo', {}).get('tag', '')
 
     if tag == 'salvar_dados_voo_no_notion' or tag == 'salvar_dados_cruzeiro_no_notion':
-        print(f"ℹ️ ATENDENTE: Recebida tag '{tag}'. Criando tarefa...")
+        logger.info(f"ℹ️ ATENDENTE: Recebida tag '{tag}'. Criando tarefa...")
         try:
             payload_para_tarefa = request.get_data()
             queue_path = tasks_client.queue_path(PROJECT_ID, LOCATION_ID, QUEUE_ID)
@@ -105,58 +106,78 @@ def gerenciar_dados():
 def processar_tarefa():
     """
     Função "TRABALHADOR": Executa a lógica pesada de forma assíncrona.
-    INCLUI A NOVA LÓGICA DE CONVERSÃO DE DATAS.
+    VERSÃO COMPLETA E FINAL.
     """
-    print("👷 TRABALHADOR: Tarefa recebida...")
+    logger.info("👷 TRABALHADOR: Tarefa recebida...")
     try:
         dados_dialogflow = request.get_json(silent=True)
         parametros = dados_dialogflow.get("sessionInfo", {}).get("parameters", {})
         tag = dados_dialogflow.get('fulfillmentInfo', {}).get('tag', '')
+        
+        # Pega o número de telefone do cliente da requisição do Dialogflow
+        # O formato exato depende da sua integração (ex: WhatsApp, Telegram)
+        # Exemplo para a integração padrão do WhatsApp:
+        numero_cliente_completo = dados_dialogflow.get("sessionInfo", {}).get("session", "")
+        numero_cliente = numero_cliente_completo.split('/')[-1] if '/' in numero_cliente_completo else numero_cliente_completo
 
-        # --- NOVA LÓGICA DE CONVERSÃO DE DATA ---
+
+        # --- LÓGICA DE CONVERSÃO DE DATA ---
         data_ida_str = parametros.get("data_ida")
         if data_ida_str and isinstance(data_ida_str, str):
-            # Converte de DD/MM/AAAA para AAAA-MM-DD
             data_ida_obj = datetime.strptime(data_ida_str, '%d/%m/%Y')
-            parametros['data_ida'] = data_ida_obj.strftime('%Y-%m-%d')
-            print(f"✅ Data de ida convertida para: {parametros['data_ida']}")
-
+            parametros['data_ida_formatada'] = data_ida_obj.strftime('%Y-%m-%d')
+        
         data_volta_str = parametros.get("data_volta")
         if data_volta_str and isinstance(data_volta_str, str):
-            # Converte de DD/MM/AAAA para AAAA-MM-DD
             data_volta_obj = datetime.strptime(data_volta_str, '%d/%m/%Y')
-            parametros['data_volta'] = data_volta_obj.strftime('%Y-%m-%d')
-            print(f"✅ Data de volta convertida para: {parametros['data_volta']}")
-        # --- FIM DA NOVA LÓGICA ---
-
-        # O restante da lógica para preparar os dados para o Notion e Twilio
-        # (Esta parte pode variar dependendo da sua implementação exata,
-        # mas o importante é que os 'parametros' agora têm as datas formatadas)
+            parametros['data_volta_formatada'] = data_volta_obj.strftime('%Y-%m-%d')
 
         if tag == 'salvar_dados_voo_no_notion':
-            # Monta o payload para o Notion usando os parâmetros já processados
+            
+            # 1. SALVAR NO NOTION
+            logger.info("👷 TRABALHADOR: Preparando dados para o Notion...")
             dados_notion = {
-                "nome_cliente": parametros.get("person", {}).get("name", parametros.get("person")),
-                "whatsapp_cliente": "Não Coletado", # Adicionar a lógica se coletar
+                "nome_cliente": parametros.get("person"),
+                "whatsapp_cliente": numero_cliente,
                 "tipo_viagem": "Passagem Aérea",
-                "origem_destino": f"{parametros.get('origem', '')} → {parametros.get('destino', '')}",
-                "data_ida": parametros.get('data_ida'),
-                "data_volta": parametros.get('data_volta'),
-                "qtd_passageiros": str(parametros.get('passageiros', '')),
+                "origem_destino": f"{parametros.get('origem')} → {parametros.get('destino')}",
+                "data_ida": parametros.get('data_ida_formatada'),
+                "data_volta": parametros.get('data_volta_formatada'),
+                "qtd_passageiros": str(parametros.get('passageiros')),
                 "perfil_viagem": parametros.get('perfil_viagem'),
                 "preferencias": parametros.get('preferencias'),
                 "status": "Aguardando Pesquisa"
             }
             create_notion_page(dados_notion)
 
-        # Lógica do Twilio (se necessário)
-        # client = Client(os.getenv("TWILIO_ACCOUNT_SID"), os.getenv("TWILIO_AUTH_TOKEN"))
-        # ...
-        
-        print("✅ TRABALHADOR: Tarefa processada com sucesso!")
+            # 2. ENVIAR ALERTA VIA WHATSAPP (TWILIO)
+            logger.info("👷 TRABALHADOR: Preparando para enviar WhatsApp...")
+            client = Client(os.getenv("TWILIO_ACCOUNT_SID"), os.getenv("TWILIO_AUTH_TOKEN"))
+            
+            #Adapte o número de destino para o seu número de administrador/vendedor
+            numero_admin = os.getenv("MEU_WHATSAPP_TO") # ex: "whatsapp:+5581999998888"
+            
+            mensagem_alerta = (
+                f"🚨 *Novo Lead de Passagem Aérea Recebido!*\n\n"
+                f"*Cliente:* {dados_notion['nome_cliente']}\n"
+                f"*Contato:* {dados_notion['whatsapp_cliente']}\n"
+                f"*Rota:* {dados_notion['origem_destino']}\n"
+                f"*Data Ida:* {parametros.get('data_ida')}\n"
+                f"*Data Volta:* {parametros.get('data_volta') or 'Só ida'}\n"
+                f"*Passageiros:* {dados_notion['qtd_passageiros']}"
+            )
+
+            message = client.messages.create(
+                            body=mensagem_alerta,
+                            from_=os.getenv("TWILIO_WHATSAPP_FROM"), # Seu número Twilio
+                            to=numero_admin
+                        )
+            logger.info(f"✅ TRABALHADOR: Alerta WhatsApp enviado! SID: {message.sid}")
+
+        logger.info("✅ TRABALHADOR: Tarefa processada com sucesso!")
         return "OK", 200
 
     except Exception as e:
-        print(f"❌ TRABALHADOR: Erro ao processar tarefa: {e}")
-        logging.error(f"Erro detalhado no trabalhador: {e}", exc_info=True)
+        logger.exception(f"❌ TRABALHADOR: Erro fatal ao processar tarefa: {e}")
         return "Erro no processamento", 500
+
