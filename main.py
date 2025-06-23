@@ -2,6 +2,7 @@
 import os
 import json
 import logging
+import pytz
 from datetime import datetime
 
 from flask import Flask, request, jsonify
@@ -40,6 +41,23 @@ def executar_logica_negocio(dados_dialogflow):
         if data_volta_str and isinstance(data_volta_str, str):
             data_volta_obj = datetime.strptime(data_volta_str, '%d/%m/%Y')
             data_volta_formatada = data_volta_obj.strftime('%Y-%m-%d')
+            
+        # Pega o parâmetro que o Dialogflow enviou
+        data_hora_str_utc = parametros.get("data_hora_confirmacao")
+
+        data_lead_formatada = None
+        if data_hora_str_utc:
+            # Converte o texto para um objeto datetime ciente do fuso horário UTC
+            dt_obj_utc = datetime.fromisoformat(data_hora_str_utc.replace('Z', '+00:00'))
+            
+            # (Opcional) Converte para o fuso horário de São Paulo
+            fuso_horario_sp = pytz.timezone('America/Sao_Paulo')
+            dt_obj_sp = dt_obj_utc.astimezone(fuso_horario_sp)
+
+            # Formata para o tipo 'Date' do Notion (AAAA-MM-DD)
+            data_lead_formatada = dt_obj_sp.strftime('%Y-%m-%d')
+            # Ou, se quiser salvar a hora também em um campo de texto:
+            hora_lead_formatada = dt_obj_sp.strftime('%H:%M:%S')
 
         if tag == 'salvar_dados_voo_no_notion':
             
@@ -47,6 +65,7 @@ def executar_logica_negocio(dados_dialogflow):
             logger.info("...Preparando dados para o Notion...")
             dados_notion = {
                 "nome_cliente": parametros.get("person"),
+                "data_contato": data_lead_formatada + " " + hora_lead_formatada,
                 "whatsapp_cliente": numero_cliente,
                 "tipo_viagem": "Passagem Aérea",
                 "origem_destino": f"{parametros.get('origem')} → {parametros.get('destino')}",
