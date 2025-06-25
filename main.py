@@ -25,7 +25,9 @@ def executar_logica_negocio(dados_dialogflow):
         parametros = dados_dialogflow.get("sessionInfo", {}).get("parameters", {})
         tag = dados_dialogflow.get('fulfillmentInfo', {}).get('tag', '')
         
-        # ... (lógica para pegar numero_cliente e formatar datas de viagem permanece a mesma) ...
+        numero_cliente_completo = dados_dialogflow.get("sessionInfo", {}).get("session", "")
+        numero_cliente = numero_cliente_completo.split('/')[-1] if '/' in numero_cliente_completo else numero_cliente_completo
+
         # --- LÓGICA DE CONVERSÃO DE DATAS DE VIAGEM ---
         data_ida_formatada = None
         data_volta_formatada = None
@@ -40,9 +42,7 @@ def executar_logica_negocio(dados_dialogflow):
             data_volta_obj = datetime.strptime(data_volta_str, '%d/%m/%Y')
             data_volta_formatada = data_volta_obj.strftime('%Y-%m-%d')
 
-        # =============================================================================
-        # ▼▼▼ BLOCO DE DATA/HORA CORRIGIDO COM FUSO HORÁRIO ▼▼▼
-        # =============================================================================
+        # --- LÓGICA PARA CAPTURAR E FORMATAR A DATA DA CONFIRMAÇÃO ---
         data_hora_obj = parametros.get("data_hora_confirmacao")
         data_contato_iso = None
 
@@ -59,9 +59,9 @@ def executar_logica_negocio(dados_dialogflow):
                     second=int(data_hora_obj.get("seconds")),
                 )
 
-                # 2. Define os fusos horários de origem (UTC) e destino (São Paulo)
+                # 2. Define os fusos horários de origem (UTC) e destino (Recife)
                 utc_tz = pytz.utc
-                local_tz = pytz.timezone('America/Sao_Paulo')
+                local_tz = pytz.timezone('America/Recife')
 
                 # 3. Transforma o datetime naive em um datetime ciente do fuso UTC
                 utc_dt = utc_tz.localize(naive_dt)
@@ -76,20 +76,52 @@ def executar_logica_negocio(dados_dialogflow):
             except Exception as e:
                 logger.error(f"Erro ao formatar data_hora_confirmacao com timezone: {e}")
                 data_contato_iso = None
-        # =============================================================================
 
         if tag == 'salvar_dados_voo_no_notion':
             
             # 1. SALVAR NO NOTION
             logger.info("...Preparando dados para o Notion...")
             dados_notion = {
-                # ... (outros campos) ...
-                "data_contato": data_contato_iso 
+                "nome_cliente": parametros.get("person"),
+                "whatsapp_cliente": numero_cliente,
+                "tipo_viagem": "Passagem Aérea",
+                "origem_destino": f"{parametros.get('origem')} → {parametros.get('destino')}",
+                "data_ida": data_ida_formatada,
+                "data_volta": data_volta_formatada,
+                "qtd_passageiros": str(parametros.get('passageiros')),
+                "perfil_viagem": parametros.get('perfil_viagem'),
+                "preferencias": parametros.get('preferencias'),
+                "status": "Aguardando Pesquisa",
+                "data_contato": data_contato_iso # <-- Usando a nova variável com formato ISO 8601
             }
             create_notion_page(dados_notion)
 
-            # 2. ENVIAR ALERTA VIA WHATSAPP
-            # ... (lógica do Twilio) ...
+            # 2. ENVIAR ALERTA VIA WHATSAPP (TWILIO)
+            logger.info("...Preparando para enviar WhatsApp com Template...")
+            client = Client(os.getenv("TWILIO_ACCOUNT_SID"), os.getenv("TWILIO_AUTH_TOKEN"))
+            
+            numero_admin = os.getenv("MEU_WHATSAPP_TO")
+            template_sid = os.getenv("TEMPLATE_SID")
+
+            if not template_sid:
+                logger.error("❌ A variável de ambiente TEMPLATE_SID não está configurada!")
+            else:
+                variaveis_conteudo = {
+                    '1': dados_notion.get('nome_cliente', 'Não informado'),
+                    '2': dados_notion.get('whatsapp_cliente', 'Não informado'),
+                    '3': dados_notion.get('origem_destino', ''),
+                    '4': parametros.get('data_ida', ''),
+                    '5': parametros.get('data_volta') or 'Só ida',
+                    '6': dados_notion.get('qtd_passageiros', '')
+                }
+                
+                message = client.messages.create(
+                                content_sid=template_sid,
+                                from_=os.getenv("TWILIO_WHATSAPP_FROM"),
+                                to=numero_admin,
+                                content_variables=json.dumps(variaveis_conteudo)
+                            )
+                logger.info(f"✅ Alerta WhatsApp (via Template) enviado! SID: {message.sid}")
 
         logger.info("✅ LÓGICA DE NEGÓCIO: Finalizada com sucesso!")
 
