@@ -1,4 +1,4 @@
-# notion_utils.py (versão final e robusta)
+# notion_utils.py (versão corrigida)
 import os
 import requests
 import logging
@@ -28,8 +28,8 @@ NOTION_PROPERTY_MAP = {
     "preferencias": "Preferências",
     "perfil_viagem": "Perfil de Viagem",
     "whatsapp_cliente": "WhatsApp",
-    "data_contato": "Data de Criação", # ou o nome exato da sua coluna
-    # --- NOVAS PROPRIEDADES PARA CRUZEIROS ---
+    "data_contato": "Data de Criação",
+    # --- PROPRIEDADES PARA CRUZEIROS ---
     "periodo_desejado": "Período Desejado",
     "observacoes_adicionais": "Observações Adicionais",
 }
@@ -37,7 +37,6 @@ NOTION_PROPERTY_MAP = {
 def create_notion_page(data: dict) -> tuple[Response, int]:
     """Cria uma página no Notion com os dados fornecidos."""
 
-    # Propriedades comuns a ambos os tipos de viagem
     properties = {
         NOTION_PROPERTY_MAP["nome_cliente"]: {
             "title": [{"text": {"content": data.get("nome_cliente", "Não informado")}}]
@@ -56,8 +55,6 @@ def create_notion_page(data: dict) -> tuple[Response, int]:
         },
     }
 
-    # --- Validações e campos específicos ---
-
     status = data.get("status", "Aguardando Pesquisa")
     if status:
         properties[NOTION_PROPERTY_MAP["status"]] = {"select": {"name": status}}
@@ -70,14 +67,20 @@ def create_notion_page(data: dict) -> tuple[Response, int]:
     if perfil_viagem:
         properties[NOTION_PROPERTY_MAP["perfil_viagem"]] = {"select": {"name": perfil_viagem}}
 
-    # Campos de Data (apenas para Passagem Aérea)
     if data.get("data_ida"):
         properties[NOTION_PROPERTY_MAP["data_ida"]] = {"date": {"start": data.get("data_ida")}}
 
     if data.get("data_volta"):
         properties[NOTION_PROPERTY_MAP["data_volta"]] = {"date": {"start": data.get("data_volta")}}
+    
+    # =============================================================================
+    # ▼▼▼ LINHAS ADICIONADAS PARA CORRIGIR O PROBLEMA ▼▼▼
+    # =============================================================================
+    data_contato = data.get("data_contato")
+    if data_contato:
+        properties[NOTION_PROPERTY_MAP["data_contato"]] = {"date": {"start": data_contato}}
+    # =============================================================================
 
-    # --- NOVA LÓGICA PARA CAMPOS DE CRUZEIRO ---
     periodo_desejado = data.get("periodo_desejado")
     if periodo_desejado:
         properties[NOTION_PROPERTY_MAP["periodo_desejado"]] = {
@@ -89,7 +92,6 @@ def create_notion_page(data: dict) -> tuple[Response, int]:
         properties[NOTION_PROPERTY_MAP["observacoes_adicionais"]] = {
             "rich_text": [{"text": {"content": observacoes_adicionais}}]
         }
-    # ----------------------------------------------
     
     payload = {
         "parent": {"database_id": NOTION_DATABASE_ID},
