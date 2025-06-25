@@ -2,7 +2,6 @@
 import os
 import json
 import logging
-import pytz
 from datetime import datetime
 
 from flask import Flask, request, jsonify
@@ -42,22 +41,20 @@ def executar_logica_negocio(dados_dialogflow):
             data_volta_obj = datetime.strptime(data_volta_str, '%d/%m/%Y')
             data_volta_formatada = data_volta_obj.strftime('%Y-%m-%d')
             
-        # Pega o parâmetro que o Dialogflow enviou
-        data_hora_str_utc = parametros.get("data_hora_confirmacao")
+        # --- LÓGICA PARA CAPTURAR E FORMATAR A DATA DA CONFIRMAÇÃO --- (VERSÃO NOVA/CORRETA)
+        data_hora_obj = parametros.get("data_hora_confirmacao")
+        data_contato_formatada = None
 
-        data_lead_formatada = None
-        if data_hora_str_utc:
-            # Converte o texto para um objeto datetime ciente do fuso horário UTC
-            dt_obj_utc = datetime.fromisoformat(data_hora_str_utc.replace('Z', '+00:00'))
+        if data_hora_obj:
+            logger.info(f"...Processando data_hora_confirmacao: {data_hora_obj}")
+            # O Dialogflow já manda um dicionário com ano, mês e dia. Vamos usá-los.
+            ano = data_hora_obj.get("year")
+            mes = data_hora_obj.get("month")
+            dia = data_hora_obj.get("day")
             
-            # (Opcional) Converte para o fuso horário de São Paulo
-            fuso_horario_sp = pytz.timezone('America/Sao_Paulo')
-            dt_obj_sp = dt_obj_utc.astimezone(fuso_horario_sp)
-
-            # Formata para o tipo 'Date' do Notion (AAAA-MM-DD)
-            data_lead_formatada = dt_obj_sp.strftime('%Y-%m-%d')
-            # Ou, se quiser salvar a hora também em um campo de texto:
-            hora_lead_formatada = dt_obj_sp.strftime('%H:%M:%S')
+            if ano and mes and dia:
+                # Formata para o tipo 'Date' do Notion (AAAA-MM-DD)
+                data_contato_formatada = f"{int(ano):04d}-{int(mes):02d}-{int(dia):02d}"
 
         if tag == 'salvar_dados_voo_no_notion':
             
@@ -65,7 +62,7 @@ def executar_logica_negocio(dados_dialogflow):
             logger.info("...Preparando dados para o Notion...")
             dados_notion = {
                 "nome_cliente": parametros.get("person"),
-                "data_contato": data_lead_formatada + " " + hora_lead_formatada,
+                "data_contato": data_contato_formatada,
                 "whatsapp_cliente": numero_cliente,
                 "tipo_viagem": "Passagem Aérea",
                 "origem_destino": f"{parametros.get('origem')} → {parametros.get('destino')}",
