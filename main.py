@@ -61,7 +61,7 @@ def executar_logica_negocio(dados_dialogflow):
 
                 # 2. Define os fusos horários de origem (UTC) e destino (Recife)
                 utc_tz = pytz.utc
-                local_tz = pytz.timezone('Etc/Greenwich')
+                local_tz = pytz.timezone('America/Sao_Paulo')
 
                 # 3. Transforma o datetime naive em um datetime ciente do fuso UTC
                 utc_dt = utc_tz.localize(naive_dt)
@@ -81,11 +81,19 @@ def executar_logica_negocio(dados_dialogflow):
             
             # 1. SALVAR NO NOTION
             logger.info("...Preparando dados para o Notion...")
+            origem = parametros.get('origem')
+            destino = parametros.get('destino')
+
+            # Pega o nome da cidade se for um objeto, senão, usa o valor original
+            origem_texto = origem.get('city', origem) if isinstance(origem, dict) else origem
+            destino_texto = destino.get('city', destino) if isinstance(destino, dict) else destino
+
+            
             dados_notion = {
                 "nome_cliente": parametros.get("person"),
                 "whatsapp_cliente": numero_cliente,
                 "tipo_viagem": "Passagem Aérea",
-                "origem_destino": f"{parametros.get('origem')} → {parametros.get('destino')}",
+                "origem_destino": f"{origem_texto} → {destino_texto}", # <-- LINHA CORRIGIDA
                 "data_ida": data_ida_formatada,
                 "data_volta": data_volta_formatada,
                 "qtd_passageiros": str(parametros.get('passageiros')),
