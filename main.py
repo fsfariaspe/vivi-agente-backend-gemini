@@ -116,7 +116,7 @@ def executar_logica_negocio(dados_dialogflow):
             else:
                 variaveis_conteudo = {
                     '1': dados_notion.get('nome_cliente', 'Não informado'),
-                    '2': dados_notion.get('Passagem Aérea', 'Não informado'),
+                    '2': dados_notion.get('tipo_viagem', 'Não informado'),
                     '3': dados_notion.get('origem_destino', ''),
                     '4': parametros.get('data_ida', ''),
                     '5': parametros.get('data_volta') or 'Só ida',
