@@ -2,7 +2,7 @@
 import os
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timezone # Importamos 'timezone'
 
 from flask import Flask, request, jsonify
 from twilio.rest import Client
@@ -27,7 +27,7 @@ def executar_logica_negocio(dados_dialogflow):
         numero_cliente_completo = dados_dialogflow.get("sessionInfo", {}).get("session", "")
         numero_cliente = numero_cliente_completo.split('/')[-1] if '/' in numero_cliente_completo else numero_cliente_completo
 
-        # --- LÓGICA DE CONVERSÃO DE DATA ---
+        # --- LÓGICA DE CONVERSÃO DE DATAS DE VIAGEM ---
         data_ida_formatada = None
         data_volta_formatada = None
 
@@ -40,23 +40,29 @@ def executar_logica_negocio(dados_dialogflow):
         if data_volta_str and isinstance(data_volta_str, str):
             data_volta_obj = datetime.strptime(data_volta_str, '%d/%m/%Y')
             data_volta_formatada = data_volta_obj.strftime('%Y-%m-%d')
-            
-        # --- LÓGICA PARA CAPTURAR E FORMATAR A DATA DA CONFIRMAÇÃO --- (VERSÃO NOVA/CORRETA)
+
+        # --- LÓGICA PARA CAPTURAR E FORMATAR A DATA DA CONFIRMAÇÃO ---
         data_hora_obj = parametros.get("data_hora_confirmacao")
-        data_contato_formatada = None
+        data_contato_iso = None
 
         if data_hora_obj:
             logger.info(f"...Processando data_hora_confirmacao: {data_hora_obj}")
-            # O Dialogflow já manda um dicionário com ano, mês e dia. Vamos usá-los.
-            ano = data_hora_obj.get("year")
-            mes = data_hora_obj.get("month")
-            dia = data_hora_obj.get("day")
-            hora = data_hora_obj.get("hours")
-            minuto = data_hora_obj.get("minutes")
-            
-            if ano and mes and dia and hora is not None and minuto is not None:
-                # Formata para o tipo 'Date' do Notion (AAAA-MM-DD)
-                data_contato_formatada = f"{int(ano):04d}-{int(mes):02d}-{int(dia):02d} -- {int(hora):02d}:{int(minuto):02d}"
+            try:
+                # Cria um objeto datetime com os dados recebidos e define o fuso horário como UTC
+                dt_obj_utc = datetime(
+                    year=int(data_hora_obj.get("year")),
+                    month=int(data_hora_obj.get("month")),
+                    day=int(data_hora_obj.get("day")),
+                    hour=int(data_hora_obj.get("hours")),
+                    minute=int(data_hora_obj.get("minutes")),
+                    second=int(data_hora_obj.get("seconds")),
+                    tzinfo=timezone.utc # Marca o tempo como UTC
+                )
+                # Formata a data para o padrão ISO 8601, que o Notion aceita
+                data_contato_iso = dt_obj_utc.isoformat()
+            except Exception as e:
+                logger.error(f"Erro ao formatar data_hora_confirmacao: {e}")
+                data_contato_iso = None # Garante que não vai quebrar se houver erro
 
         if tag == 'salvar_dados_voo_no_notion':
             
@@ -64,7 +70,6 @@ def executar_logica_negocio(dados_dialogflow):
             logger.info("...Preparando dados para o Notion...")
             dados_notion = {
                 "nome_cliente": parametros.get("person"),
-                "data_contato": data_contato_formatada,
                 "whatsapp_cliente": numero_cliente,
                 "tipo_viagem": "Passagem Aérea",
                 "origem_destino": f"{parametros.get('origem')} → {parametros.get('destino')}",
@@ -73,11 +78,12 @@ def executar_logica_negocio(dados_dialogflow):
                 "qtd_passageiros": str(parametros.get('passageiros')),
                 "perfil_viagem": parametros.get('perfil_viagem'),
                 "preferencias": parametros.get('preferencias'),
-                "status": "Aguardando Pesquisa"
+                "status": "Aguardando Pesquisa",
+                "data_contato": data_contato_iso # <-- Usando a nova variável com formato ISO 8601
             }
             create_notion_page(dados_notion)
 
-            # 2. ENVIAR ALERTA VIA WHATSAPP (TWILIO) USANDO TEMPLATE
+            # 2. ENVIAR ALERTA VIA WHATSAPP (TWILIO)
             logger.info("...Preparando para enviar WhatsApp com Template...")
             client = Client(os.getenv("TWILIO_ACCOUNT_SID"), os.getenv("TWILIO_AUTH_TOKEN"))
             
@@ -89,7 +95,7 @@ def executar_logica_negocio(dados_dialogflow):
             else:
                 variaveis_conteudo = {
                     '1': dados_notion.get('nome_cliente', 'Não informado'),
-                    '2': dados_notion.get('tipo_viagem', 'Não informado'),
+                    '2': dados_notion.get('whatsapp_cliente', 'Não informado'),
                     '3': dados_notion.get('origem_destino', ''),
                     '4': parametros.get('data_ida', ''),
                     '5': parametros.get('data_volta') or 'Só ida',
@@ -112,16 +118,8 @@ def executar_logica_negocio(dados_dialogflow):
 # --- Rota Principal Única ---
 @app.route('/', methods=['POST'])
 def webhook_principal():
-    """
-    Esta rota recebe a chamada do Dialogflow, executa toda a lógica de negócio
-    diretamente e responde para o Dialogflow.
-    """
     request_json = request.get_json(silent=True)
     logger.info("--- CHAMADA WEBHOOK RECEBIDA ---")
-    
-    # Executa a lógica de negócio diretamente
     executar_logica_negocio(request_json)
-    
-    # Responde para o Dialogflow
     texto_resposta = "Sua solicitação foi registrada com sucesso! Em instantes, um de nossos especialistas entrará em contato. Obrigado! 😊"
     return jsonify({"fulfillment_response": {"messages": [{"text": {"text": [texto_resposta]}}]}})
