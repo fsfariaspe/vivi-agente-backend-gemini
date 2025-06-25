@@ -51,10 +51,12 @@ def executar_logica_negocio(dados_dialogflow):
             ano = data_hora_obj.get("year")
             mes = data_hora_obj.get("month")
             dia = data_hora_obj.get("day")
+            hora = data_hora_obj.get("hours")
+            minuto = data_hora_obj.get("minutes")
             
-            if ano and mes and dia:
+            if ano and mes and dia and hora is not None and minuto is not None:
                 # Formata para o tipo 'Date' do Notion (AAAA-MM-DD)
-                data_contato_formatada = f"{int(ano):04d}-{int(mes):02d}-{int(dia):02d}"
+                data_contato_formatada = f"{int(ano):04d}-{int(mes):02d}-{int(dia):02d} -- {int(hora):02d}:{int(minuto):02d}"
 
         if tag == 'salvar_dados_voo_no_notion':
             
