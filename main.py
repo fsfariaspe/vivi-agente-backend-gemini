@@ -68,9 +68,12 @@ def executar_logica_negocio(dados_dialogflow):
 
                 # 4. Converte o datetime de UTC para o fuso local
                 local_dt = utc_dt.astimezone(local_tz)
-
-                # 5. Formata a data/hora LOCAL para o padrão ISO 8601
-                data_contato_iso = local_dt.isoformat()
+                
+                # =============================================================================
+                # ▼▼▼ LINHA DA CORREÇÃO FINAL ▼▼▼
+                # Formata a data/hora LOCAL para o padrão ISO, MAS SEM FUSO HORÁRIO
+                # =============================================================================
+                data_contato_iso = local_dt.strftime('%Y-%m-%dT%H:%M:%S')
                 logger.info(f"...Data e hora convertida para fuso local: {data_contato_iso}")
 
             except Exception as e:
