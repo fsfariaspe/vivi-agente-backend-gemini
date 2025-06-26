@@ -1,9 +1,9 @@
-# main.py (VERSÃO FINAL DE PRODUÇÃO - SÍNCRONA E VALIDADA)
+# main.py (VERSÃO FINAL COM LÓGICA PARA PASSAGENS E CRUZEIROS)
 import os
 import json
 import logging
 import pytz
-from datetime import datetime, timezone # Importamos 'timezone'
+from datetime import datetime
 
 from flask import Flask, request, jsonify
 from twilio.rest import Client
@@ -28,69 +28,36 @@ def executar_logica_negocio(dados_dialogflow):
         numero_cliente_completo = dados_dialogflow.get("sessionInfo", {}).get("session", "")
         numero_cliente = numero_cliente_completo.split('/')[-1] if '/' in numero_cliente_completo else numero_cliente_completo
 
-        # --- LÓGICA DE CONVERSÃO DE DATAS DE VIAGEM ---
-        data_ida_formatada = None
-        data_volta_formatada = None
-
-        data_ida_str = parametros.get("data_ida")
-        if data_ida_str and isinstance(data_ida_str, str):
-            data_ida_obj = datetime.strptime(data_ida_str, '%d/%m/%Y')
-            data_ida_formatada = data_ida_obj.strftime('%Y-%m-%d')
-        
-        data_volta_str = parametros.get("data_volta")
-        if data_volta_str and isinstance(data_volta_str, str):
-            data_volta_obj = datetime.strptime(data_volta_str, '%d/%m/%Y')
-            data_volta_formatada = data_volta_obj.strftime('%Y-%m-%d')
-
-        # --- LÓGICA PARA CAPTURAR E FORMATAR A DATA DA CONFIRMAÇÃO ---
+        # --- LÓGICA DE DATA/HORA DA CONFIRMAÇÃO ---
         data_hora_obj = parametros.get("data_hora_confirmacao")
         data_contato_iso = None
-
         if data_hora_obj:
-            logger.info(f"...Processando data_hora_confirmacao (UTC): {data_hora_obj}")
             try:
-                # 1. Cria um objeto datetime "naive" (sem fuso)
                 naive_dt = datetime(
-                    year=int(data_hora_obj.get("year")),
-                    month=int(data_hora_obj.get("month")),
-                    day=int(data_hora_obj.get("day")),
-                    hour=int(data_hora_obj.get("hours")),
-                    minute=int(data_hora_obj.get("minutes")),
-                    second=int(data_hora_obj.get("seconds")),
+                    year=int(data_hora_obj.get("year")), month=int(data_hora_obj.get("month")),
+                    day=int(data_hora_obj.get("day")), hour=int(data_hora_obj.get("hours")),
+                    minute=int(data_hora_obj.get("minutes")), second=int(data_hora_obj.get("seconds")),
                 )
-
-                # 2. Define os fusos horários de origem (UTC) e destino (Recife)
                 utc_tz = pytz.utc
                 local_tz = pytz.timezone('America/Sao_Paulo')
-
-                # 3. Transforma o datetime naive em um datetime ciente do fuso UTC
                 utc_dt = utc_tz.localize(naive_dt)
-
-                # 4. Converte o datetime de UTC para o fuso local
                 local_dt = utc_dt.astimezone(local_tz)
-                
-                # =============================================================================
-                # ▼▼▼ LINHA DA CORREÇÃO FINAL ▼▼▼
-                # Formata a data/hora LOCAL para o padrão ISO, MAS SEM FUSO HORÁRIO
-                # =============================================================================
-                data_contato_iso = local_dt.strftime('%Y-%m-%dT%H:%M:%S')
-                logger.info(f"...Data e hora convertida para fuso local: {data_contato_iso}")
-
+                data_contato_iso = local_dt.isoformat()
             except Exception as e:
-                logger.error(f"Erro ao formatar data_hora_confirmacao com timezone: {e}")
-                data_contato_iso = None
+                logger.error(f"Erro ao formatar data_hora_confirmacao: {e}")
+
+        
+        # Variáveis que serão definidas dependendo do tipo de lead
+        dados_notion = {}
+        template_sid_a_usar = None
+        variaveis_template = {}
 
         if tag == 'salvar_dados_voo_no_notion':
-            
-            # 1. SALVAR NO NOTION
-            logger.info("...Preparando dados para o Notion...")
-            origem = parametros.get('origem')
-            destino = parametros.get('destino')
-
-            # Pega o nome da cidade se for um objeto, senão, usa o valor original
-            origem_texto = origem.get('city', origem) if isinstance(origem, dict) else origem
-            destino_texto = destino.get('city', destino) if isinstance(destino, dict) else destino
-
+            logger.info("...Processando lead de PASSAGEM AÉREA...")
+            data_ida_formatada = datetime.strptime(parametros.get("data_ida"), '%d/%m/%Y').strftime('%Y-%m-%d') if parametros.get("data_ida") else None
+            data_volta_formatada = datetime.strptime(parametros.get("data_volta"), '%d/%m/%Y').strftime('%Y-%m-%d') if parametros.get("data_volta") else None
+            origem_texto = parametros.get('origem', {}).get('city', parametros.get('origem'))
+            destino_texto = parametros.get('destino', {}).get('city', parametros.get('destino'))
             
             dados_notion = {
                 "nome_cliente": parametros.get("person"),
@@ -105,34 +72,68 @@ def executar_logica_negocio(dados_dialogflow):
                 "status": "Aguardando Pesquisa",
                 "data_contato": data_contato_iso # <-- Usando a nova variável com formato ISO 8601
             }
-            create_notion_page(dados_notion)
-
-            # 2. ENVIAR ALERTA VIA WHATSAPP (TWILIO)
-            logger.info("...Preparando para enviar WhatsApp com Template...")
-            client = Client(os.getenv("TWILIO_ACCOUNT_SID"), os.getenv("TWILIO_AUTH_TOKEN"))
             
-            numero_admin = os.getenv("MEU_WHATSAPP_TO")
-            template_sid = os.getenv("TEMPLATE_SID")
+            template_sid_a_usar = os.getenv("TEMPLATE_SID") # Template de passagens
+            variaveis_template = {
+                '1': dados_notion.get('nome_cliente', 'N/A'),
+                '2': dados_notion.get('tipo_viagem', 'N/A'),
+                '3': dados_notion.get('origem_destino', 'N/A'),
+                '4': parametros.get('data_ida', 'N/A'),
+                '5': parametros.get('data_volta') or 'Só ida',
+                '6': dados_notion.get('qtd_passageiros', 'N/A')
+            }
 
-            if not template_sid:
-                logger.error("❌ A variável de ambiente TEMPLATE_SID não está configurada!")
-            else:
-                variaveis_conteudo = {
-                    '1': dados_notion.get('nome_cliente', 'Não informado'),
-                    '2': dados_notion.get('tipo_viagem', 'Não informado'),
-                    '3': dados_notion.get('origem_destino', ''),
-                    '4': parametros.get('data_ida', ''),
-                    '5': parametros.get('data_volta') or 'Só ida',
-                    '6': dados_notion.get('qtd_passageiros', '')
-                }
-                
-                message = client.messages.create(
-                                content_sid=template_sid,
-                                from_=os.getenv("TWILIO_WHATSAPP_FROM"),
-                                to=numero_admin,
-                                content_variables=json.dumps(variaveis_conteudo)
-                            )
-                logger.info(f"✅ Alerta WhatsApp (via Template) enviado! SID: {message.sid}")
+        # =============================================================================
+        # ▼▼▼ NOVA LÓGICA PARA CRUZEIROS ▼▼▼
+        # =============================================================================
+        elif tag == 'salvar_dados_cruzeiro_no_notion':
+            logger.info("...Processando lead de CRUZEIRO...")
+            
+            obs_adicionais = (
+                f"Companhia Preferida: {parametros.get('companhia_cruzeiro', 'N/A')}. "
+                f"Acessibilidade: {parametros.get('acessibilidade_cruzeiro_texto', 'N/A')}. "
+                f"Tarifa Sênior: {parametros.get('tarifa_senior_texto', 'N/A')}."
+            )
+            
+            dados_notion = {
+                "nome_cliente": parametros.get("person"),
+                "whatsapp_cliente": numero_cliente,
+                "tipo_viagem": "Cruzeiro",
+                "origem_destino": parametros.get('destino_cruzeiro'),
+                "periodo_desejado": parametros.get('periodo_cruzeiro'),
+                "qtd_passageiros": f"{parametros.get('adultos_cruzeiro') or 0} adulto(s), {parametros.get('criancas_cruzeiro') or 0} criança(s)",
+                "observacoes_adicionais": obs_adicionais, "status": "Aguardando Pesquisa",
+                "data_contato": data_contato_iso
+            }
+            
+            template_sid_a_usar = os.getenv("TEMPLATE_CRUZEIRO_SID") # SID do novo template de cruzeiro
+            variaveis_template = {
+                '1': dados_notion.get('nome_cliente', 'N/A'),
+                '2': dados_notion.get('origem_destino', 'N/A'),
+                '3': dados_notion.get('periodo_desejado', 'N/A'),
+                '4': dados_notion.get('qtd_passageiros', 'N/A'),
+                '5': parametros.get('porto_embarque', 'N/A'),
+                '6': numero_cliente
+            }
+            
+        else:
+            logger.warning(f"Tag '{tag}' recebida, mas sem lógica de processamento definida.")
+            return
+
+        # --- Execução das Ações (Notion e Twilio) ---
+        if dados_notion:
+            create_notion_page(dados_notion)
+        
+        if template_sid_a_usar and variaveis_template:
+            client = Client(os.getenv("TWILIO_ACCOUNT_SID"), os.getenv("TWILIO_AUTH_TOKEN"))
+            numero_admin = os.getenv("MEU_WHATSAPP_TO")
+            message = client.messages.create(
+                            content_sid=template_sid_a_usar,
+                            from_=os.getenv("TWILIO_WHATSAPP_FROM"),
+                            to=numero_admin,
+                            content_variables=json.dumps(variaveis_template)
+                        )
+            logger.info(f"✅ Alerta WhatsApp (template {template_sid_a_usar}) enviado! SID: {message.sid}")
 
         logger.info("✅ LÓGICA DE NEGÓCIO: Finalizada com sucesso!")
 
