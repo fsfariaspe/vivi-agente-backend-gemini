@@ -101,7 +101,7 @@ def executar_logica_negocio(dados_dialogflow):
                 "tipo_viagem": "Cruzeiro",
                 "origem_destino": parametros.get('destino_cruzeiro'),
                 "periodo_desejado": parametros.get('periodo_cruzeiro'),
-                "qtd_passageiros": f"{parametros.get('adultos_cruzeiro') or 0} adulto(s), {parametros.get('criancas_cruzeiro') or 0} criança(s)",
+                "qtd_passageiros": f"{parametros.get('adultos_cruzeiro') or 0} adulto(s), {parametros.get('numero_criancas') or 0} criança(s)",
                 "preferencias": obs_adicionais,
                 "status": "Aguardando Pesquisa",
                 "data_contato": data_contato_iso
