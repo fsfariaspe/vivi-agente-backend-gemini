@@ -67,7 +67,7 @@ def executar_logica_negocio(dados_dialogflow):
                 "data_ida": data_ida_formatada,
                 "data_volta": data_volta_formatada,
                 "qtd_passageiros": str(parametros.get('passageiros')),
-                "idade_criancas": parametros.get('idade_crianca', 'N/A'),
+                "idade_crianca": parametros.get('idade_crianca', 'N/A'),
                 "perfil_viagem": parametros.get('perfil_viagem'),
                 "preferencias": parametros.get('preferencias'),
                 "status": "Aguardando Pesquisa",
@@ -104,7 +104,7 @@ def executar_logica_negocio(dados_dialogflow):
                 "periodo_desejado": parametros.get('periodo_cruzeiro'),
                 "qtd_passageiros": f"{parametros.get('adultos_cruzeiro') or 0} adulto(s), {parametros.get('numero_criancas') or 0} criança(s)",
                 "preferencias": obs_adicionais,
-                "idade_criancas": parametros.get('idade_criancas', 'N/A'),
+                "idade_crianca": parametros.get('idade_crianca', 'N/A'),
                 "idade_senior": parametros.get('idade_senior', 'N/A'),
                 "status": "Aguardando Pesquisa",
                 "data_contato": data_contato_iso

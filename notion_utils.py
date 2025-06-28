@@ -25,7 +25,7 @@ NOTION_PROPERTY_MAP = {
     "data_ida": "Data de Ida",
     "data_volta": "Data de Volta (se houver)",
     "qtd_passageiros": "Qtd. de Passageiros",
-    "idade_criancas": "Idade Crianças",
+    "idade_crianca": "Idade Crianças",
     "preferencias": "Preferências",
     "perfil_viagem": "Perfil de Viagem",
     "whatsapp_cliente": "WhatsApp",
@@ -50,7 +50,7 @@ def create_notion_page(data: dict) -> tuple[Response, int]:
         NOTION_PROPERTY_MAP["qtd_passageiros"]: {
             "rich_text": [{"text": {"content": str(data.get("qtd_passageiros", ""))}}]
         },
-        NOTION_PROPERTY_MAP["idade_criancas"]: {
+        NOTION_PROPERTY_MAP["idade_crianca"]: {
             "rich_text": [{"text": {"content": data.get("idade_crianca", "")}}]
         },
         NOTION_PROPERTY_MAP["preferencias"]: {
@@ -103,12 +103,6 @@ def create_notion_page(data: dict) -> tuple[Response, int]:
     if observacoes_adicionais:
         properties[NOTION_PROPERTY_MAP["observacoes_adicionais"]] = {
             "rich_text": [{"text": {"content": observacoes_adicionais}}]
-        }
-    
-    idade_criancas = data.get("idade_criancas")
-    if idade_criancas:
-        properties[NOTION_PROPERTY_MAP["idade_criancas"]] = {
-            "rich_text": [{"text": {"content": idade_criancas}}]
         }
     
     idade_senior = data.get("idade_senior")
