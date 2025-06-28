@@ -5,7 +5,7 @@ Repositório destinado a manter a vivi dentro da estrutura do Google-Gemini
 
 **Vivi** é um agente de conversação inteligente, construído com Google Dialogflow CX e um backend em Python/Flask, projetado para automatizar a cotação de produtos de viagem, capturar leads e notificar a equipe de vendas em tempo real.
 
-**Versão Atual:** v1.0.0
+**Versão Atual:** v1.2-stable
 
 ## Resumo do Projeto
 
