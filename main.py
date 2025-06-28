@@ -67,6 +67,7 @@ def executar_logica_negocio(dados_dialogflow):
                 "data_ida": data_ida_formatada,
                 "data_volta": data_volta_formatada,
                 "qtd_passageiros": str(parametros.get('passageiros')),
+                "idade_criancas": parametros.get('idade_crianca', 'N/A'),
                 "perfil_viagem": parametros.get('perfil_viagem'),
                 "preferencias": parametros.get('preferencias'),
                 "status": "Aguardando Pesquisa",
@@ -99,10 +100,12 @@ def executar_logica_negocio(dados_dialogflow):
                 "nome_cliente": parametros.get("person"),
                 "whatsapp_cliente": numero_cliente,
                 "tipo_viagem": "Cruzeiro",
-                "origem_destino": parametros.get('destino_cruzeiro'),
+                "destino_cruzeiro": parametros.get('destino_cruzeiro'),
                 "periodo_desejado": parametros.get('periodo_cruzeiro'),
                 "qtd_passageiros": f"{parametros.get('adultos_cruzeiro') or 0} adulto(s), {parametros.get('numero_criancas') or 0} criança(s)",
                 "preferencias": obs_adicionais,
+                "idade_criancas": parametros.get('idade_criancas', 'N/A'),
+                "idade_senior": parametros.get('idade_senior', 'N/A'),
                 "status": "Aguardando Pesquisa",
                 "data_contato": data_contato_iso
             }
@@ -110,7 +113,7 @@ def executar_logica_negocio(dados_dialogflow):
             template_sid_a_usar = os.getenv("TEMPLATE_CRUZEIRO_SID") # SID do novo template de cruzeiro
             variaveis_template = {
                 '1': dados_notion.get('nome_cliente', 'N/A'),
-                '2': dados_notion.get('origem_destino', 'N/A'),
+                '2': dados_notion.get('destino_cruzeiro', 'N/A'),
                 '3': dados_notion.get('periodo_desejado', 'N/A'),
                 '4': dados_notion.get('qtd_passageiros', 'N/A'),
                 '5': parametros.get('porto_embarque', 'N/A'),
