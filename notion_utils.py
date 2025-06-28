@@ -1,4 +1,4 @@
-# notion_utils.py (versão final e robusta)
+# notion_utils.py (versão corrigida) 
 import os
 import requests
 import logging
@@ -25,10 +25,16 @@ NOTION_PROPERTY_MAP = {
     "data_ida": "Data de Ida",
     "data_volta": "Data de Volta (se houver)",
     "qtd_passageiros": "Qtd. de Passageiros",
+    "idade_crianca": "Idade Crianças",
     "preferencias": "Preferências",
     "perfil_viagem": "Perfil de Viagem",
     "whatsapp_cliente": "WhatsApp",
-    "data_contato": "Data de Criação", # ou o nome exato da sua coluna
+    "data_contato": "Data de Criação",
+    # --- PROPRIEDADES PARA CRUZEIROS ---
+    "destino_cruzeiro": "Região Desejada",
+    "periodo_desejado": "Período Desejado",
+    "observacoes_adicionais": "Observações Adicionais",
+    "idade_senior": "Idade Sênior",
 }
 
 def create_notion_page(data: dict) -> tuple[Response, int]:
@@ -44,6 +50,9 @@ def create_notion_page(data: dict) -> tuple[Response, int]:
         NOTION_PROPERTY_MAP["qtd_passageiros"]: {
             "rich_text": [{"text": {"content": str(data.get("qtd_passageiros", ""))}}]
         },
+        NOTION_PROPERTY_MAP["idade_crianca"]: {
+            "rich_text": [{"text": {"content": data.get("idade_crianca", "")}}]
+        },
         NOTION_PROPERTY_MAP["preferencias"]: {
             "rich_text": [{"text": {"content": data.get("preferencias", "")}}]
         },
@@ -52,30 +61,56 @@ def create_notion_page(data: dict) -> tuple[Response, int]:
         },
     }
 
-    # --- Validações para evitar erro 400 ---
-
-    # Adiciona status apenas se houver um valor válido
     status = data.get("status", "Aguardando Pesquisa")
     if status:
         properties[NOTION_PROPERTY_MAP["status"]] = {"select": {"name": status}}
 
-    # Adiciona tipo de viagem apenas se houver um valor válido
-    tipo_viagem = data.get("tipo_viagem", "Passagem Aérea")
+    tipo_viagem = data.get("tipo_viagem", "Não especificado")
     if tipo_viagem:
         properties[NOTION_PROPERTY_MAP["tipo_viagem"]] = {"select": {"name": tipo_viagem}}
 
-    # Adiciona perfil de viagem apenas se houver um valor válido
     perfil_viagem = data.get("perfil_viagem")
     if perfil_viagem:
         properties[NOTION_PROPERTY_MAP["perfil_viagem"]] = {"select": {"name": perfil_viagem}}
 
-    # Adiciona datas apenas se forem válidas
     if data.get("data_ida"):
         properties[NOTION_PROPERTY_MAP["data_ida"]] = {"date": {"start": data.get("data_ida")}}
 
     if data.get("data_volta"):
         properties[NOTION_PROPERTY_MAP["data_volta"]] = {"date": {"start": data.get("data_volta")}}
+    
+    # =============================================================================
+    # ▼▼▼ LINHAS ADICIONADAS PARA CORRIGIR O PROBLEMA ▼▼▼
+    # =============================================================================
+    data_contato = data.get("data_contato")
+    if data_contato:
+        properties[NOTION_PROPERTY_MAP["data_contato"]] = {"date": {"start": data_contato}}
+    # =============================================================================
 
+    destino_cruzeiro = data.get("destino_cruzeiro")
+    if destino_cruzeiro:
+        properties[NOTION_PROPERTY_MAP["destino_cruzeiro"]] = {
+            "rich_text": [{"text": {"content": destino_cruzeiro}}]
+        }
+    
+    periodo_desejado = data.get("periodo_desejado")
+    if periodo_desejado:
+        properties[NOTION_PROPERTY_MAP["periodo_desejado"]] = {
+            "rich_text": [{"text": {"content": periodo_desejado}}]
+        }
+
+    observacoes_adicionais = data.get("observacoes_adicionais")
+    if observacoes_adicionais:
+        properties[NOTION_PROPERTY_MAP["observacoes_adicionais"]] = {
+            "rich_text": [{"text": {"content": observacoes_adicionais}}]
+        }
+    
+    idade_senior = data.get("idade_senior")
+    if idade_senior:
+        properties[NOTION_PROPERTY_MAP["idade_senior"]] = {
+            "rich_text": [{"text": {"content": idade_senior}}]
+        }
+    
     payload = {
         "parent": {"database_id": NOTION_DATABASE_ID},
         "properties": properties
@@ -83,14 +118,11 @@ def create_notion_page(data: dict) -> tuple[Response, int]:
 
     try:
         response = requests.post(NOTION_API_URL, headers=HEADERS, json=payload)
-        # Imprime a resposta do Notion para depuração, em caso de erro
         if response.status_code != 200:
             logger.error("NOTION ERROR RESPONSE: %s", response.text)
         response.raise_for_status()
         logger.info("✅ Página criada no Notion com sucesso!")
-        # O retorno pode ser simplificado, pois o main.py já lida com a resposta
         return jsonify(response.json()), response.status_code
     except requests.exceptions.RequestException as e:
-        # Loga o erro completo para facilitar a depuração
         logger.exception("❌ Erro ao enviar para o Notion: %s", e)
         return jsonify({"erro": str(e)}), e.response.status_code if e.response else 500
