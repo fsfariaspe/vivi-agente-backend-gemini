@@ -1,4 +1,4 @@
-# main.py (VERSÃO FINAL COM LÓGICA PARA PASSAGENS E CRUZEIROS) 
+# main.py (VERSÃO FINAL REATORADA - SÍNCRONA E COMPLETA)
 import os
 import json
 import logging
@@ -17,9 +17,6 @@ app = Flask(__name__)
 
 # --- Função que contém a lógica de negócio ---
 def executar_logica_negocio(dados_dialogflow):
-    """
-    Executa toda a lógica de negócio: formata dados, salva no Notion e notifica via Twilio.
-    """
     logger.info("👷‍♂️ LÓGICA DE NEGÓCIO: Execução iniciada...")
     try:
         parametros = dados_dialogflow.get("sessionInfo", {}).get("parameters", {})
@@ -46,11 +43,9 @@ def executar_logica_negocio(dados_dialogflow):
             except Exception as e:
                 logger.error(f"Erro ao formatar data_hora_confirmacao: {e}")
 
-        
-        # Variáveis que serão definidas dependendo do tipo de lead
-        dados_notion = {}
-        template_sid_a_usar = None
-        variaveis_template = {}
+        # =============================================================================
+        # ▼▼▼ LÓGICA REATORADA ▼▼▼
+        # =============================================================================
 
         if tag == 'salvar_dados_voo_no_notion':
             logger.info("...Processando lead de PASSAGEM AÉREA...")
@@ -63,18 +58,18 @@ def executar_logica_negocio(dados_dialogflow):
                 "nome_cliente": parametros.get("person"),
                 "whatsapp_cliente": numero_cliente,
                 "tipo_viagem": "Passagem Aérea",
-                "origem_destino": f"{origem_texto} → {destino_texto}", # <-- LINHA CORRIGIDA
+                "origem_destino": f"{origem_texto} → {destino_texto}",
                 "data_ida": data_ida_formatada,
                 "data_volta": data_volta_formatada,
                 "qtd_passageiros": str(parametros.get('passageiros')),
-                "idade_crianca": parametros.get('idade_crianca', 'N/A'),
                 "perfil_viagem": parametros.get('perfil_viagem'),
                 "preferencias": parametros.get('preferencias'),
                 "status": "Aguardando Pesquisa",
-                "data_contato": data_contato_iso # <-- Usando a nova variável com formato ISO 8601
+                "data_contato": data_contato_iso
             }
+            create_notion_page(dados_notion) # Ação do Notion
             
-            template_sid_a_usar = os.getenv("TEMPLATE_SID") # Template de passagens
+            template_sid = os.getenv("TEMPLATE_SID")
             variaveis_template = {
                 '1': dados_notion.get('nome_cliente', 'N/A'),
                 '2': dados_notion.get('tipo_viagem', 'N/A'),
@@ -83,10 +78,13 @@ def executar_logica_negocio(dados_dialogflow):
                 '5': parametros.get('data_volta') or 'Só ida',
                 '6': dados_notion.get('qtd_passageiros', 'N/A')
             }
+            client = Client(os.getenv("TWILIO_ACCOUNT_SID"), os.getenv("TWILIO_AUTH_TOKEN"))
+            message = client.messages.create(
+                content_sid=template_sid, from_=os.getenv("TWILIO_WHATSAPP_FROM"),
+                to=os.getenv("MEU_WHATSAPP_TO"), content_variables=json.dumps(variaveis_template)
+            )
+            logger.info(f"✅ Alerta de VOO enviado! SID: {message.sid}")
 
-        # =============================================================================
-        # ▼▼▼ NOVA LÓGICA PARA CRUZEIROS ▼▼▼
-        # =============================================================================
         elif tag == 'salvar_dados_cruzeiro_no_notion':
             logger.info("...Processando lead de CRUZEIRO...")
             
@@ -109,8 +107,9 @@ def executar_logica_negocio(dados_dialogflow):
                 "status": "Aguardando Pesquisa",
                 "data_contato": data_contato_iso
             }
+            create_notion_page(dados_notion) # Ação do Notion
             
-            template_sid_a_usar = os.getenv("TEMPLATE_CRUZEIRO_SID") # SID do novo template de cruzeiro
+            template_sid = os.getenv("TEMPLATE_CRUZEIRO_SID")
             variaveis_template = {
                 '1': dados_notion.get('nome_cliente', 'N/A'),
                 '2': dados_notion.get('destino_cruzeiro', 'N/A'),
@@ -119,25 +118,15 @@ def executar_logica_negocio(dados_dialogflow):
                 '5': parametros.get('porto_embarque', 'N/A'),
                 '6': numero_cliente
             }
+            client = Client(os.getenv("TWILIO_ACCOUNT_SID"), os.getenv("TWILIO_AUTH_TOKEN"))
+            message = client.messages.create(
+                content_sid=template_sid, from_=os.getenv("TWILIO_WHATSAPP_FROM"),
+                to=os.getenv("MEU_WHATSAPP_TO"), content_variables=json.dumps(variaveis_template)
+            )
+            logger.info(f"✅ Alerta de CRUZEIRO enviado! SID: {message.sid}")
             
         else:
             logger.warning(f"Tag '{tag}' recebida, mas sem lógica de processamento definida.")
-            return
-
-        # --- Execução das Ações (Notion e Twilio) ---
-        if dados_notion:
-            create_notion_page(dados_notion)
-        
-        if template_sid_a_usar and variaveis_template:
-            client = Client(os.getenv("TWILIO_ACCOUNT_SID"), os.getenv("TWILIO_AUTH_TOKEN"))
-            numero_admin = os.getenv("MEU_WHATSAPP_TO")
-            message = client.messages.create(
-                            content_sid=template_sid_a_usar,
-                            from_=os.getenv("TWILIO_WHATSAPP_FROM"),
-                            to=numero_admin,
-                            content_variables=json.dumps(variaveis_template)
-                        )
-            logger.info(f"✅ Alerta WhatsApp (template {template_sid_a_usar}) enviado! SID: {message.sid}")
 
         logger.info("✅ LÓGICA DE NEGÓCIO: Finalizada com sucesso!")
 
