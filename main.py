@@ -93,7 +93,7 @@ def executar_logica_negocio(dados_dialogflow):
             obs_adicionais = (
                 f"Companhia Preferida: {parametros.get('companhia_cruzeiro', 'N/A')}. "
                 f"Acessibilidade: {parametros.get('acessibilidade_cruzeiro', 'N/A')}. "
-                f"Tarifa Sênior: {parametros.get('tarifa_senior', 'N/A')}."
+                f"Tarifa Sênior: {parametros.get('status_tarifa_senior', 'N/A')}."
             )
             
             dados_notion = {
