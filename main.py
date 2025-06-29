@@ -17,13 +17,29 @@ app = Flask(__name__)
 
 # --- Função que contém a lógica de negócio ---
 def executar_logica_negocio(dados_dialogflow):
+    """
+    Executa toda a lógica de negócio: formata dados, salva no Notion e notifica via Twilio.
+    """
     logger.info("👷‍♂️ LÓGICA DE NEGÓCIO: Execução iniciada...")
     try:
         parametros = dados_dialogflow.get("sessionInfo", {}).get("parameters", {})
         tag = dados_dialogflow.get('fulfillmentInfo', {}).get('tag', '')
         
-        numero_cliente_completo = dados_dialogflow.get("sessionInfo", {}).get("session", "")
-        numero_cliente = numero_cliente_completo.split('/')[-1] if '/' in numero_cliente_completo else numero_cliente_completo
+        # =============================================================================
+        # ▼▼▼ LÓGICA CORRIGIDA PARA O NÚMERO DO CLIENTE ▼▼▼
+        # =============================================================================
+        
+        # Primeiro, tentamos pegar o número que o usuário digitou na página 'coletar_whatsapp'.
+        numero_coletado = parametros.get("whatsapp_cliente")
+
+        if numero_coletado:
+            logger.info(f"Usando número de WhatsApp coletado no formulário: {numero_coletado}")
+            numero_cliente_final = numero_coletado
+        else:
+            # Se não houver número coletado (veio direto do WhatsApp), pegamos da sessão.
+            logger.info("Número não coletado no formulário, extraindo da sessão...")
+            session_id_completo = dados_dialogflow.get("sessionInfo", {}).get("session", "")
+            numero_cliente_final = session_id_completo.split('/')[-1] if '/' in session_id_completo else session_id_completo
 
         # --- LÓGICA DE DATA/HORA DA CONFIRMAÇÃO ---
         data_hora_obj = parametros.get("data_hora_confirmacao")
@@ -56,7 +72,7 @@ def executar_logica_negocio(dados_dialogflow):
             
             dados_notion = {
                 "nome_cliente": parametros.get("person"),
-                "whatsapp_cliente": numero_cliente,
+                "whatsapp_cliente": numero_cliente_final,
                 "tipo_viagem": "Passagem Aérea",
                 "origem_destino": f"{origem_texto} → {destino_texto}",
                 "data_ida": data_ida_formatada,
@@ -96,7 +112,7 @@ def executar_logica_negocio(dados_dialogflow):
             
             dados_notion = {
                 "nome_cliente": parametros.get("person"),
-                "whatsapp_cliente": numero_cliente,
+                "whatsapp_cliente": numero_cliente_final,
                 "tipo_viagem": "Cruzeiro",
                 "destino_cruzeiro": parametros.get('destino_cruzeiro'),
                 "periodo_desejado": parametros.get('periodo_cruzeiro'),
@@ -116,7 +132,7 @@ def executar_logica_negocio(dados_dialogflow):
                 '3': dados_notion.get('periodo_desejado', 'N/A'),
                 '4': dados_notion.get('qtd_passageiros', 'N/A'),
                 '5': parametros.get('porto_embarque', 'N/A'),
-                '6': numero_cliente
+                '6': numero_cliente_final
             }
             client = Client(os.getenv("TWILIO_ACCOUNT_SID"), os.getenv("TWILIO_AUTH_TOKEN"))
             message = client.messages.create(
