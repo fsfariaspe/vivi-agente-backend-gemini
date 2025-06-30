@@ -3,7 +3,7 @@ steps:
     args:
       - "run"
       - "deploy"
-      - "twilio-connector"
+      - "${_SERVICE_NAME}"
       - "--source=./nodejs-connector"
       - "--region=southamerica-east1"
       - "--platform=managed"
