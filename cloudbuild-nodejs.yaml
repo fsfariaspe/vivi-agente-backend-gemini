@@ -8,3 +8,6 @@ steps:
       - "--region=southamerica-east1"
       - "--platform=managed"
       - "--allow-unauthenticated"
+# ▼▼▼ ADICIONE ESTE BLOCO NO FINAL ▼▼▼
+options:
+  logging: CLOUD_LOGGING_ONLY
