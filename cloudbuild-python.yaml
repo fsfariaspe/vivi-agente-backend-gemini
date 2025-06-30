@@ -8,3 +8,7 @@ steps:
       - "--region=southamerica-east1"
       - "--platform=managed"
       - "--allow-unauthenticated"
+    # Opcional: Especifique a conta de serviço se necessário
+    # - '--service-account=189449893651-compute@developer.gserviceaccount.com'
+options:
+  logging: CLOUD_LOGGING_ONLY
