@@ -41,9 +41,10 @@ const listener = app.listen(process.env.PORT, () => {
 const twilioToDetectIntent = (twilioReq) => {
     const sessionId = twilioReq.body.To;
     const sessionPath = sessionClient.projectLocationAgentSessionPath(
-        process.env.DIALOGFLOW_CX_PROJECT_ID,
-        process.env.DIALOGFLOW_CX_LOCATION,
-        process.env.DIALOGFLOW_CX_AGENT_ID,
+        process.env.PROJECT_ID,
+        process.env.LOCATION,
+        process.env.AGENT_ID,
+        process.env.LANGUAGE_CODE,
         sessionId
     );
 
@@ -57,6 +58,12 @@ const twilioToDetectIntent = (twilioReq) => {
                 text: message
             },
             languageCode
+        },
+        // ▼▼▼ ADICIONE ESTE BLOCO ▼▼▼
+        queryParams: {
+            payload: {
+                source: 'WHATSAPP'
+            }
         }
     };
 
