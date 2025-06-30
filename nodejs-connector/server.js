@@ -12,7 +12,7 @@
 */
 
 const express = require('express');
-const {SessionsClient} = require('@google-cloud/dialogflow-cx');
+const { SessionsClient } = require('@google-cloud/dialogflow-cx');
 const MessagingResponse = require('twilio').twiml.MessagingResponse;
 const path = require('path')
 const bodyParser = require('body-parser');
@@ -20,7 +20,7 @@ const ENV_FILE = path.join(__dirname, '.env');
 require('dotenv').config({ path: ENV_FILE });
 
 const sessionClient = new SessionsClient(
-    {apiEndpoint: process.env.LOCATION + "-dialogflow.googleapis.com"}
+    { apiEndpoint: process.env.LOCATION + "-dialogflow.googleapis.com" }
 );
 
 const app = express();
@@ -30,7 +30,7 @@ app.use(bodyParser.urlencoded({ extended: true }));
 
 const listener = app.listen(process.env.PORT, () => {
     console.log('Your Dialogflow integration server is listening on port ' +
-    listener.address().port);
+        listener.address().port);
 });
 
 /*
@@ -40,10 +40,10 @@ const listener = app.listen(process.env.PORT, () => {
 */
 const twilioToDetectIntent = (twilioReq) => {
     const sessionId = twilioReq.body.To;
-    const sessionPath = sessionClient.projectLocationAgentSessionPath (
-        process.env.PROJECT_ID,
-        process.env.LOCATION,
-        process.env.AGENT_ID,
+    const sessionPath = sessionClient.projectLocationAgentSessionPath(
+        process.env.DIALOGFLOW_CX_PROJECT_ID,
+        process.env.DIALOGFLOW_CX_LOCATION,
+        process.env.DIALOGFLOW_CX_AGENT_ID,
         sessionId
     );
 
@@ -52,14 +52,14 @@ const twilioToDetectIntent = (twilioReq) => {
     const request = {
         session: sessionPath,
         queryInput:
-            {
-                text: {
-                    text: message
-                },
-                languageCode
-            }
-        };
-    
+        {
+            text: {
+                text: message
+            },
+            languageCode
+        }
+    };
+
     return request;
 };
 
@@ -70,14 +70,14 @@ const twilioToDetectIntent = (twilioReq) => {
 */
 const detectIntentToTwilio = (dialogflowResponse) => {
     let reply = "";
-    
+
     for (let responseMessage of dialogflowResponse.queryResult.responseMessages) {
         if (responseMessage.hasOwnProperty('text')) {
             reply += responseMessage.text.text;
         }
     }
 
-    const twiml = new  MessagingResponse();
+    const twiml = new MessagingResponse();
     twiml.message(reply);
     return twiml;
 };
@@ -101,10 +101,10 @@ app.post('/', async (req, res) => {
 });
 
 process.on('SIGTERM', () => {
-    listener.close(async ()=> {
-      console.log('Closing server.');
-      process.exit(0);
+    listener.close(async () => {
+        console.log('Closing server.');
+        process.exit(0);
     });
-  });
+});
 
-module.exports = {twilioToDetectIntent, detectIntentToTwilio};
+module.exports = { twilioToDetectIntent, detectIntentToTwilio };
