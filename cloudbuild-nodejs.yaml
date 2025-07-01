@@ -5,9 +5,12 @@ steps:
       - "deploy"
       - "${_SERVICE_NAME}"
       - "--source=./nodejs-connector"
-      - "--region=southamerica-east1"
+      - "--region=${_REGION}" # Trocado para variável
       - "--platform=managed"
       - "--allow-unauthenticated"
-# ▼▼▼ ADICIONE ESTE BLOCO NO FINAL ▼▼▼
+      # Variáveis de ambiente agora usam substituições
+      - "--set-env-vars=PROJECT_ID=${_PROJECT_ID},LOCATION=${_LOCATION},AGENT_ID=${_AGENT_ID},LANGUAGE_CODE=${_LANGUAGE_CODE},TWILIO_ACCOUNT_SID=${_TWILIO_ACCOUNT_SID},TWILIO_PHONE_NUMBER=${_TWILIO_PHONE_NUMBER}"
+      # Secret continua vindo do Secret Manager
+      - "--set-secrets=TWILIO_AUTH_TOKEN=twilio-auth-token:latest"
 options:
   logging: CLOUD_LOGGING_ONLY
