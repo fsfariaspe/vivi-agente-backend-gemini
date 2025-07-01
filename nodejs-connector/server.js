@@ -40,6 +40,10 @@ const listener = app.listen(process.env.PORT, () => {
 *  @return {JSON} 
 */
 const twilioToDetectIntent = (twilioReq) => {
+    // ▼▼▼ GARANTA QUE ESTE BLOCO DE DEBUG EXISTE ▼▼▼
+    console.log('--- INICIANDO DEBUG DE PAYLOAD v2 ---');
+    // ▲▲▲ FIM DO BLOCO DE DEBUG ▲▲▲
+
     const sessionId = twilioReq.body.To;
     const sessionPath = sessionClient.projectLocationAgentSessionPath(
         process.env.PROJECT_ID,
@@ -50,8 +54,6 @@ const twilioToDetectIntent = (twilioReq) => {
 
     const message = twilioReq.body.Body;
     const languageCode = process.env.LANGUAGE_CODE;
-
-    // ▼▼▼ ESTA É A CORREÇÃO FUNDAMENTAL ▼▼▼
     const request = {
         session: sessionPath,
         queryInput: {
@@ -66,7 +68,6 @@ const twilioToDetectIntent = (twilioReq) => {
             }
         }
     };
-    // ▲▲▲ FIM DA CORREÇÃO ▲▲▲
 
     return request;
 };
