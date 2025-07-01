@@ -1,16 +1,16 @@
 steps:
   - name: "gcr.io/cloud-builders/gcloud"
+    # Usaremos o bash como ponto de entrada para garantir a interpretação correta
+    entrypoint: "bash"
     args:
-      - "run"
-      - "deploy"
-      - "${_SERVICE_NAME}"
-      - "--source=./nodejs-connector"
-      - "--region=${_REGION}"
-      - "--platform=managed"
-      - "--allow-unauthenticated"
-      # ▼▼▼ ADICIONE ASPAS SIMPLES NO INÍCIO E NO FIM DESTA LINHA ▼▼▼
-      - "--set-env-vars=PROJECT_ID=${_PROJECT_ID},LOCATION=${_LOCATION},AGENT_ID=${_AGENT_ID},LANGUAGE_CODE=${_LANGUAGE_CODE},TWILIO_ACCOUNT_SID=${_TWILIO_ACCOUNT_SID},TWILIO_PHONE_NUMBER=${_TWILIO_PHONE_NUMBER}"
-      # ▼▼▼ E NESTA TAMBÉM ▼▼▼
-      - "--set-secrets=TWILIO_AUTH_TOKEN=twilio-auth-token:latest"
+      - "-c"
+      - | # O pipe permite um comando de múltiplas linhas
+        gcloud run deploy ${_SERVICE_NAME} \
+          --source=./nodejs-connector \
+          --region=${_REGION} \
+          --platform=managed \
+          --allow-unauthenticated \
+          --set-env-vars="PROJECT_ID=${_PROJECT_ID},LOCATION=${_LOCATION},AGENT_ID=${_AGENT_ID},LANGUAGE_CODE=${_LANGUAGE_CODE},TWILIO_ACCOUNT_SID=${_TWILIO_ACCOUNT_SID},TWILIO_PHONE_NUMBER=${_TWILIO_PHONE_NUMBER}" \
+          --set-secrets="TWILIO_AUTH_TOKEN=twilio-auth-token:latest"
 options:
   logging: CLOUD_LOGGING_ONLY
