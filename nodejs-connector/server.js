@@ -41,10 +41,10 @@ const listener = app.listen(process.env.PORT, () => {
 */
 const twilioToDetectIntent = (twilioReq) => {
     // ▼▼▼ GARANTA QUE ESTE BLOCO DE DEBUG EXISTE ▼▼▼
-    console.log('--- INICIANDO DEBUG DE PAYLOAD v2 ---');
+    console.log('--- INICIANDO DEBUG DE PAYLOAD v3 ---');
     // ▲▲▲ FIM DO BLOCO DE DEBUG ▲▲▲
 
-    const sessionId = twilioReq.body.To;
+    const sessionId = twilioReq.body.From;
     const sessionPath = sessionClient.projectLocationAgentSessionPath(
         process.env.PROJECT_ID,
         process.env.LOCATION,
