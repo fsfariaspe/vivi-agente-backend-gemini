@@ -41,10 +41,10 @@ const listener = app.listen(process.env.PORT, () => {
 */
 const twilioToDetectIntent = (twilioReq) => {
     // ▼▼▼ GARANTA QUE ESTE BLOCO DE DEBUG EXISTE ▼▼▼
-    console.log('--- INICIANDO DEBUG DE PAYLOAD v3 ---');
+    console.log('--- INICIANDO DEBUG DE PAYLOAD v3.1 ---');
     // ▲▲▲ FIM DO BLOCO DE DEBUG ▲▲▲
 
-    const sessionId = twilioReq.body.From;
+    const sessionId = twilioReq.body.From.replace('whatsapp:', '');
     const sessionPath = sessionClient.projectLocationAgentSessionPath(
         process.env.PROJECT_ID,
         process.env.LOCATION,
@@ -68,6 +68,11 @@ const twilioToDetectIntent = (twilioReq) => {
             }
         }
     };
+
+    // ▼▼▼ ALTERE O DEBUG PARA ESTA VERSÃO MAIS COMPLETA ▼▼▼
+    console.log('--- ENVIANDO PARA DIALOGFLOW ---');
+    console.log(JSON.stringify(request, null, 2));
+    // ▲▲▲ FIM DA ALTERAÇÃO ▲▲▲
 
     return request;
 };
