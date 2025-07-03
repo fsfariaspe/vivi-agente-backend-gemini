@@ -89,16 +89,16 @@ const twilioToDetectIntent = (twilioReq) => {
 *  @return {JSON} 
 */
 const detectIntentToTwilio = (dialogflowResponse) => {
-  let reply = "";
+  // Coleta o texto de todas as bolhas de mensagem
+  const replies = dialogflowResponse.queryResult.responseMessages
+    .filter(responseMessage => responseMessage.hasOwnProperty('text'))
+    .map(responseMessage => responseMessage.text.text.join('')); // Junta textos dentro da mesma bolha
 
-  for (let responseMessage of dialogflowResponse.queryResult.responseMessages) {
-    if (responseMessage.hasOwnProperty('text')) {
-      reply += responseMessage.text.text;
-    }
-  }
+  // Junta todas as respostas de diferentes bolhas com uma quebra de linha
+  const fullReply = replies.join('\n');
 
   const twiml = new MessagingResponse();
-  twiml.message(reply);
+  twiml.message(fullReply);
   return twiml;
 };
 
