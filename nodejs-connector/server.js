@@ -44,7 +44,7 @@ const twilioToDetectIntent = (twilioReq) => {
     console.log('--- INICIANDO DEBUG DE PAYLOAD v3.1 ---');
     // ▲▲▲ FIM DO BLOCO DE DEBUG ▲▲▲
 
-    const sessionId = twilioReq.body.From.replace('whatsapp:', '');
+    const sessionId = twilioReq.body.From;
     const sessionPath = sessionClient.projectLocationAgentSessionPath(
         process.env.PROJECT_ID,
         process.env.LOCATION,
