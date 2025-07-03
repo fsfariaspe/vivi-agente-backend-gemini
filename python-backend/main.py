@@ -67,8 +67,12 @@ def executar_logica_negocio(dados_dialogflow):
             logger.info("...Processando lead de PASSAGEM AÉREA...")
             data_ida_formatada = datetime.strptime(parametros.get("data_ida"), '%d/%m/%Y').strftime('%Y-%m-%d') if parametros.get("data_ida") else None
             data_volta_formatada = datetime.strptime(parametros.get("data_volta"), '%d/%m/%Y').strftime('%Y-%m-%d') if parametros.get("data_volta") else None
-            origem_texto = parametros.get('origem', {}).get('city', parametros.get('origem'))
-            destino_texto = parametros.get('destino', {}).get('city', parametros.get('destino'))
+            
+            origem = parametros.get('origem')
+            origem_texto = origem.get('city') if isinstance(origem, dict) else origem
+
+            destino = parametros.get('destino')
+            destino_texto = destino.get('city') if isinstance(destino, dict) else destino
             
             dados_notion = {
                 "nome_cliente": parametros.get("person"),
