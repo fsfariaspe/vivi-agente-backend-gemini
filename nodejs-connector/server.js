@@ -21,7 +21,7 @@ const ENV_FILE = path.join(__dirname, '.env');
 require('dotenv').config({ path: ENV_FILE });
 
 const sessionClient = new SessionsClient(
-    { apiEndpoint: process.env.LOCATION + "-dialogflow.googleapis.com" }
+  { apiEndpoint: process.env.LOCATION + "-dialogflow.googleapis.com" }
 );
 
 const app = express();
@@ -30,8 +30,8 @@ app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 
 const listener = app.listen(process.env.PORT, () => {
-    console.log('Your Dialogflow integration server is listening on port ' +
-        listener.address().port);
+  console.log('Your Dialogflow integration server is listening on port ' +
+    listener.address().port);
 });
 
 /*
@@ -40,41 +40,47 @@ const listener = app.listen(process.env.PORT, () => {
 *  @return {JSON} 
 */
 const twilioToDetectIntent = (twilioReq) => {
-    // ▼▼▼ GARANTA QUE ESTE BLOCO DE DEBUG EXISTE ▼▼▼
-    console.log('--- INICIANDO DEBUG DE PAYLOAD v3.2 ---');
-    // ▲▲▲ FIM DO BLOCO DE DEBUG ▲▲▲
+  // ▼▼▼ GARANTA QUE ESTE BLOCO DE DEBUG EXISTE ▼▼▼
+  console.log('--- INICIANDO DEBUG DE PAYLOAD v4 ---');
+  // ▲▲▲ FIM DO BLOCO DE DEBUG ▲▲▲
 
-    const sessionId = twilioReq.body.From;
-    const sessionPath = sessionClient.projectLocationAgentSessionPath(
-        process.env.PROJECT_ID,
-        process.env.LOCATION,
-        process.env.AGENT_ID,
-        sessionId
-    );
+  const sessionId = twilioReq.body.From.replace('whatsapp:', ''); // Limpa o ID da sessão
+  const sessionPath = sessionClient.projectLocationAgentSessionPath(
+    process.env.PROJECT_ID,
+    process.env.LOCATION,
+    process.env.AGENT_ID,
+    sessionId
+  );
 
-    const message = twilioReq.body.Body;
-    const languageCode = process.env.LANGUAGE_CODE;
-    const request = {
-        session: sessionPath,
-        queryInput: {
-            text: {
-                text: message
-            },
-            languageCode
-        },
-        queryParams: {
-            payload: {
-                source: 'WHATSAPP'
-            }
+  const message = twilioReq.body.Body;
+  const languageCode = process.env.LANGUAGE_CODE;
+
+  const request = {
+    session: sessionPath,
+    queryInput: {
+      text: {
+        text: message,
+      },
+      languageCode,
+    },
+    // AQUI ESTÁ A MUDANÇA FUNDAMENTAL
+    // Passando o parâmetro diretamente na query, não como payload
+    queryParams: {
+      parameters: {
+        fields: {
+          source: {
+            stringValue: 'WHATSAPP',
+            kind: 'stringValue'
+          }
         }
-    };
+      }
+    }
+  };
 
-    // ▼▼▼ ALTERE O DEBUG PARA ESTA VERSÃO MAIS COMPLETA ▼▼▼
-    console.log('--- ENVIANDO PARA DIALOGFLOW ---');
-    console.log(JSON.stringify(request, null, 2));
-    // ▲▲▲ FIM DA ALTERAÇÃO ▲▲▲
+  console.log('--- ENVIANDO PARA DIALOGFLOW (v4) ---');
+  console.log(JSON.stringify(request, null, 2));
 
-    return request;
+  return request;
 };
 
 /*
@@ -83,17 +89,17 @@ const twilioToDetectIntent = (twilioReq) => {
 *  @return {JSON} 
 */
 const detectIntentToTwilio = (dialogflowResponse) => {
-    let reply = "";
+  let reply = "";
 
-    for (let responseMessage of dialogflowResponse.queryResult.responseMessages) {
-        if (responseMessage.hasOwnProperty('text')) {
-            reply += responseMessage.text.text;
-        }
+  for (let responseMessage of dialogflowResponse.queryResult.responseMessages) {
+    if (responseMessage.hasOwnProperty('text')) {
+      reply += responseMessage.text.text;
     }
+  }
 
-    const twiml = new MessagingResponse();
-    twiml.message(reply);
-    return twiml;
+  const twiml = new MessagingResponse();
+  twiml.message(reply);
+  return twiml;
 };
 
 /*
@@ -102,23 +108,23 @@ const detectIntentToTwilio = (dialogflowResponse) => {
 *  @return {string}
 */
 const getResponseMessage = async (req) => {
-    const dialogflowRequest = twilioToDetectIntent(req);
-    const [dialogflowResponse] = await sessionClient.detectIntent(dialogflowRequest);
-    const twiml = detectIntentToTwilio(dialogflowResponse);
-    return twiml.toString();
+  const dialogflowRequest = twilioToDetectIntent(req);
+  const [dialogflowResponse] = await sessionClient.detectIntent(dialogflowRequest);
+  const twiml = detectIntentToTwilio(dialogflowResponse);
+  return twiml.toString();
 };
 
 app.post('/', async (req, res) => {
-    const message = await getResponseMessage(req);
-    console.log("MESSAGE: " + message);
-    res.send(message);
+  const message = await getResponseMessage(req);
+  console.log("MESSAGE: " + message);
+  res.send(message);
 });
 
 process.on('SIGTERM', () => {
-    listener.close(async () => {
-        console.log('Closing server.');
-        process.exit(0);
-    });
+  listener.close(async () => {
+    console.log('Closing server.');
+    process.exit(0);
+  });
 });
 
 module.exports = { twilioToDetectIntent, detectIntentToTwilio };
