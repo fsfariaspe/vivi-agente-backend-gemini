@@ -79,7 +79,24 @@ const detectIntentToTwilio = (dialogflowResponse) => {
 function isGenericQuestion(text) {
   const questionWords = ['quem', 'qual', 'quais', 'onde', 'quando', 'como', 'por que', 'o que', 'me diga', 'me conte'];
   const lowerCaseText = text.toLowerCase().trim();
-  return questionWords.some(word => lowerCaseText.startsWith(word)) || lowerCaseText.endsWith('?');
+
+  // Se terminar com '?', é uma pergunta.
+  if (lowerCaseText.endsWith('?')) {
+    return true;
+  }
+
+  const words = lowerCaseText.split(' ');
+  // Se a primeira palavra for de pergunta, é uma pergunta.
+  if (questionWords.includes(words[0])) {
+    return true;
+  }
+
+  // Se a segunda palavra for de pergunta (para casos como "e quem...", "mas qual..."), é uma pergunta.
+  if (words.length > 1 && questionWords.includes(words[1])) {
+    return true;
+  }
+
+  return false;
 }
 
 // --- ROTA PRINCIPAL ATUALIZADA ---
