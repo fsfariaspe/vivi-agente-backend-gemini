@@ -56,7 +56,7 @@ const twilioToDetectIntent = (req) => {
     sessionId
   );
 
-  const message = twilioReq.body.Body;
+  const message = req.body.Body;
   const languageCode = process.env.LANGUAGE_CODE;
 
   const request = {
