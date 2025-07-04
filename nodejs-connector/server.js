@@ -46,7 +46,7 @@ Vivi: Dom Casmurro foi escrito por Machado de Assis, um dos maiores escritores d
 // Converte a requisição do Twilio para o formato do Dialogflow
 const twilioToDetectIntent = (req) => {
   // ▼▼▼ GARANTA QUE ESTE BLOCO DE DEBUG EXISTE ▼▼▼
-  console.log('--- INICIANDO DEBUG DE PAYLOAD v5 ---');
+  console.log('--- INICIANDO DEBUG DE PAYLOAD v6 ---');
   // ▲▲▲ FIM DO BLOCO DE DEBUG ▲▲▲
   const sessionId = req.body.From.replace('whatsapp:', '');
   const sessionPath = dialogflowClient.projectLocationAgentSessionPath(
@@ -81,7 +81,7 @@ const twilioToDetectIntent = (req) => {
     }
   };
 
-  console.log('--- ENVIANDO PARA DIALOGFLOW (v5) ---');
+  console.log('--- ENVIANDO PARA DIALOGFLOW (v6) ---');
   console.log(JSON.stringify(request, null, 2));
 
   return request;
@@ -111,6 +111,7 @@ const createTwilioResponse = (text) => {
 
 
 // --- Rota Principal ---
+// --- Rota Principal Corrigida ---
 app.post('/', async (req, res) => {
   try {
     const userInput = req.body.Body;
@@ -118,33 +119,19 @@ app.post('/', async (req, res) => {
 
     console.log('Enviando para o Dialogflow...');
     const [dialogflowResponse] = await dialogflowClient.detectIntent(dialogflowRequest);
-    const queryResult = dialogflowResponse.queryResult;
 
-    let responseText = "";
+    // ▼▼▼ LÓGICA CORRIGIDA ▼▼▼
+    // AGORA, em vez de processar o texto aqui, nós passamos a resposta completa
+    // para a sua função, que cuidará da formatação e da criação do TwiML.
+    const twimlResponse = detectIntentToTwilio(dialogflowResponse);
 
-    // Verifica se o payload de fallback foi retornado
-    const customPayload = queryResult.responseMessages.find(msg => msg.payload);
-    if (customPayload && customPayload.payload.action === 'generative_fallback') {
-      console.log('Fallback detectado. Acionando IA Generativa...');
-
-      const fullPrompt = `${fallbackPrompt}\n---\nUsuário: ${userInput}\nVivi:`;
-      const result = await model.generateContent(fullPrompt);
-      responseText = await result.response.text();
-
-    } else {
-      // Lógica padrão: junta as mensagens de texto do Dialogflow
-      responseText = queryResult.responseMessages
-        .filter(msg => msg.text)
-        .map(msg => msg.text.text.join('\n'))
-        .join('\n');
-    }
-
-    console.log(`Resposta final para o usuário: ${responseText}`);
-    res.type('text/xml').send(createTwilioResponse(responseText));
+    console.log(`Resposta final para o usuário: ${twimlResponse.toString()}`);
+    res.type('text/xml').send(twimlResponse.toString());
 
   } catch (error) {
     console.error('ERRO GERAL NO WEBHOOK:', error);
-    res.status(500).send(createTwilioResponse('Ocorreu um erro inesperado. Por favor, tente novamente mais tarde.'));
+    const errorResponse = createTwilioResponse('Ocorreu um erro inesperado. Tente novamente.');
+    res.status(500).type('text/xml').send(errorResponse);
   }
 });
 
