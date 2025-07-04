@@ -46,9 +46,9 @@ Vivi: Dom Casmurro foi escrito por Machado de Assis, um dos maiores escritores d
 // Converte a requisição do Twilio para o formato do Dialogflow
 const twilioToDetectIntent = (req) => {
   // ▼▼▼ GARANTA QUE ESTE BLOCO DE DEBUG EXISTE ▼▼▼
-  console.log('--- INICIANDO DEBUG DE PAYLOAD v6 ---');
+  console.log('--- INICIANDO DEBUG DE PAYLOAD v6.1 ---');
   // ▲▲▲ FIM DO BLOCO DE DEBUG ▲▲▲
-  const sessionId = req.body.From.replace('whatsapp:', '');
+  const sessionId = req.body.From;
   const sessionPath = dialogflowClient.projectLocationAgentSessionPath(
     process.env.PROJECT_ID,
     process.env.LOCATION,
@@ -81,7 +81,7 @@ const twilioToDetectIntent = (req) => {
     }
   };
 
-  console.log('--- ENVIANDO PARA DIALOGFLOW (v6) ---');
+  console.log('--- ENVIANDO PARA DIALOGFLOW (v6.1) ---');
   console.log(JSON.stringify(request, null, 2));
 
   return request;
