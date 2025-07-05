@@ -88,18 +88,33 @@ const detectIntentToTwilio = (dialogflowResponse) => {
   return twiml;
 };
 
-// Função para chamar o Dialogflow com um evento
-async function triggerDialogflowEvent(eventName, sessionId) {
+// Função para chamar o Dialogflow com um evento e um parâmetro
+async function triggerDialogflowEvent(eventName, sessionId, produto) {
   const sessionPath = dialogflowClient.projectLocationAgentSessionPath(
     process.env.PROJECT_ID, process.env.LOCATION, process.env.AGENT_ID, sessionId
   );
+
+  // Monta os parâmetros que serão enviados com o evento
+  const queryParams = {
+    parameters: {
+      fields: {
+        produto_escolhido: {
+          stringValue: produto,
+          kind: 'stringValue'
+        }
+      }
+    }
+  };
+
   const request = {
     session: sessionPath,
     queryInput: {
       event: { event: eventName, languageCode: process.env.LANGUAGE_CODE },
     },
+    queryParams: queryParams // Adiciona os parâmetros aqui
   };
-  console.log(`Disparando evento: ${eventName} para a sessão ${sessionId}`);
+
+  console.log(`Disparando evento: ${eventName} com produto: ${produto}`);
   const [response] = await dialogflowClient.detectIntent(request);
   return response;
 }
@@ -134,25 +149,16 @@ app.post('/', async (req, res) => {
     }
 
     if (actionJson && actionJson.action) {
-      // A IA decidiu iniciar um fluxo
       console.log(`Ação detectada pela IA: ${actionJson.action}`);
 
-      const twiml = new MessagingResponse();
-      twiml.message(actionJson.response);
+      let produto = actionJson.action === 'iniciar_cotacao_passagem' ? 'passagem' : 'cruzeiro';
 
-      // Inicia o fluxo no Dialogflow de forma assíncrona
-      triggerDialogflowEvent(actionJson.action, sessionId).then(dialogflowResponse => {
-        const followUpTwiML = detectIntentToTwilio(dialogflowResponse);
-        // Envia a primeira pergunta do fluxo como uma segunda mensagem
-        const client = require('twilio')(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
-        client.messages.create({
-          body: followUpTwiML.message().body,
-          from: `whatsapp:${process.env.TWILIO_PHONE_NUMBER}`,
-          to: req.body.From
-        });
-      }).catch(err => console.error("Erro ao disparar evento no Dialogflow:", err));
+      // Dispara o evento correspondente no Dialogflow COM O PARÂMETRO
+      const dialogflowResponse = await triggerDialogflowEvent("iniciar_cotacao", sessionId, produto);
+      const twimlResponse = detectIntentToTwilio(dialogflowResponse);
 
-      return res.type('text/xml').send(twiml.toString());
+      // Envia a primeira mensagem do fluxo
+      return res.type('text/xml').send(twimlResponse.toString());
     }
 
     // Se nenhuma ação for detectada, continua a conversa generativa
