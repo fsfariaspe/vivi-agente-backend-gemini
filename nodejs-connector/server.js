@@ -13,6 +13,15 @@ const app = express();
 app.use(bodyParser.urlencoded({ extended: false }));
 app.use(bodyParser.json());
 
+// --- LOG DE DIAGNÓSTICO 1: Verificando a Chave de API ---
+console.log("--- DIAGNÓSTICO DE INICIALIZAÇÃO ---");
+if (process.env.GEMINI_API_KEY) {
+  console.log("Variável GEMINI_API_KEY encontrada.");
+} else {
+  console.error("ERRO CRÍTICO: Variável de ambiente GEMINI_API_KEY não foi encontrada!");
+}
+console.log("------------------------------------");
+
 // --- Clientes das APIs ---
 const dialogflowClient = new SessionsClient({ apiEndpoint: `${process.env.LOCATION}-dialogflow.googleapis.com` });
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
@@ -119,64 +128,96 @@ async function triggerDialogflowEvent(eventName, sessionId, produto) {
   return response;
 }
 
-// --- ROTA PRINCIPAL REATORADA ---
+// --- ROTA PRINCIPAL COM LOGS DETALHADOS ---
 app.post('/', async (req, res) => {
-  const userInput = req.body.Body;
-  const sessionId = req.body.From.replace('whatsapp:', '');
-  console.log(`[${sessionId}] Mensagem recebida: "${userInput}"`);
-
-  // Inicializa o histórico se for a primeira vez
-  if (!conversationHistory[sessionId]) {
-    conversationHistory[sessionId] = [];
-  }
-
-  // Adiciona a mensagem do usuário ao histórico
-  conversationHistory[sessionId].push({ role: "user", parts: [{ text: userInput }] });
-
-  // Detecta se a intenção é entrar em um fluxo estruturado
-  const detectActionPrompt = `Analise a última mensagem do usuário: "${userInput}". O usuário quer iniciar uma cotação de "passagem" ou "cruzeiro"? Se sim, responda com o JSON de ação correspondente. Se não, responda com "conversar".`;
-
   try {
-    const actionModel = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-    const actionResult = await actionModel.generateContent(detectActionPrompt);
-    const actionResponseText = (await actionResult.response).text();
+    const userInput = req.body.Body;
+    const sessionId = req.body.From.replace('whatsapp:', '');
+    console.log(`[${sessionId}] Mensagem recebida: "${userInput}"`);
 
-    let actionJson = null;
+    // Inicializa o histórico se for a primeira vez
+    if (!conversationHistory[sessionId]) {
+      conversationHistory[sessionId] = [];
+    }
+
+    // Adiciona a mensagem do usuário ao histórico
+    conversationHistory[sessionId].push({ role: "user", parts: [{ text: userInput }] });
+
+    // Detecta se a intenção é entrar em um fluxo estruturado
+    const detectActionPrompt = `Analise a última mensagem do usuário: "${userInput}". O usuário quer iniciar uma cotação de "passagem" ou "cruzeiro"? Se sim, responda com o JSON de ação correspondente. Se não, responda com "conversar".`;
+
     try {
-      actionJson = JSON.parse(actionResponseText);
-    } catch (e) {
-      // Não é um JSON, continua a conversa normal
+      const actionModel = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+      const actionResult = await actionModel.generateContent(detectActionPrompt);
+      const actionResponseText = (await actionResult.response).text();
+
+      let actionJson = null;
+      try {
+        actionJson = JSON.parse(actionResponseText);
+      } catch (e) {
+        // Não é um JSON, continua a conversa normal
+      }
+
+      if (actionJson && actionJson.action) {
+        console.log(`Ação detectada pela IA: ${actionJson.action}`);
+
+        let produto = actionJson.action === 'iniciar_cotacao_passagem' ? 'passagem' : 'cruzeiro';
+
+        // Dispara o evento correspondente no Dialogflow COM O PARÂMETRO
+        const dialogflowResponse = await triggerDialogflowEvent("iniciar_cotacao", sessionId, produto);
+        const twimlResponse = detectIntentToTwilio(dialogflowResponse);
+
+        // Envia a primeira mensagem do fluxo
+        return res.type('text/xml').send(twimlResponse.toString());
+      }
+
+      // Se nenhuma ação for detectada, continua a conversa generativa
+      console.log('Nenhuma ação detectada, continuando conversa com o Gemini.');
+      const chat = model.startChat({ history: conversationHistory[sessionId] });
+      const result = await chat.sendMessage(userInput);
+      const geminiText = (await result.response).text();
+
+      conversationHistory[sessionId].push({ role: "model", parts: [{ text: geminiText }] });
+
+      const twiml = new MessagingResponse();
+      twiml.message(geminiText);
+      return res.type('text/xml').send(twiml.toString());
+
+    } catch (error) {
+      console.error('ERRO GERAL NO WEBHOOK:', error);
+      const errorTwiml = new MessagingResponse();
+      errorTwiml.message('Ocorreu um erro inesperado. Por favor, tente novamente.');
+      res.status(500).type('text/xml').send(errorTwiml.toString());
     }
 
-    if (actionJson && actionJson.action) {
-      console.log(`Ação detectada pela IA: ${actionJson.action}`);
-
-      let produto = actionJson.action === 'iniciar_cotacao_passagem' ? 'passagem' : 'cruzeiro';
-
-      // Dispara o evento correspondente no Dialogflow COM O PARÂMETRO
-      const dialogflowResponse = await triggerDialogflowEvent("iniciar_cotacao", sessionId, produto);
-      const twimlResponse = detectIntentToTwilio(dialogflowResponse);
-
-      // Envia a primeira mensagem do fluxo
-      return res.type('text/xml').send(twimlResponse.toString());
-    }
-
-    // Se nenhuma ação for detectada, continua a conversa generativa
     console.log('Nenhuma ação detectada, continuando conversa com o Gemini.');
-    const chat = model.startChat({ history: conversationHistory[sessionId] });
-    const result = await chat.sendMessage(userInput);
-    const geminiText = (await result.response).text();
+    const fullPrompt = `${mainPrompt}\n---\nUsuário: ${userInput}\nVivi:`;
 
-    conversationHistory[sessionId].push({ role: "model", parts: [{ text: geminiText }] });
+    console.log('--- ETAPA 1: Antes de chamar a IA ---');
+    const result = await model.generateContent(fullPrompt);
+    console.log('--- ETAPA 2: Depois de chamar a IA ---');
+
+    const response = await result.response;
+    const geminiText = response.text();
+
+    console.log(`Texto da IA: ${geminiText}`);
 
     const twiml = new MessagingResponse();
     twiml.message(geminiText);
     return res.type('text/xml').send(twiml.toString());
 
   } catch (error) {
-    console.error('ERRO GERAL NO WEBHOOK:', error);
+    // --- LOG DE ERRO DETALHADO ---
+    console.error('--- ERRO CAPTURADO NO WEBHOOK ---');
+    console.error('MENSAGEM:', error.message);
+    if (error.response) {
+      console.error('RESPOSTA DO ERRO:', JSON.stringify(error.response, null, 2));
+    }
+    console.error('STACK TRACE:', error.stack);
+    console.error('--- FIM DO ERRO ---');
+
     const errorTwiml = new MessagingResponse();
-    errorTwiml.message('Ocorreu um erro inesperado. Por favor, tente novamente.');
+    errorTwiml.message('Desculpe, estou com um problema para me conectar à minha inteligência. Tente novamente em um instante.');
     res.status(500).type('text/xml').send(errorTwiml.toString());
   }
 });
