@@ -1,42 +1,60 @@
 const express = require('express');
 const { SessionsClient } = require('@google-cloud/dialogflow-cx');
-const { GoogleAuth } = require('google-auth-library');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const MessagingResponse = require('twilio').twiml.MessagingResponse;
 const path = require('path');
 const bodyParser = require('body-parser');
 
+// --- Configurações Iniciais ---
 const ENV_FILE = path.join(__dirname, '.env');
 require('dotenv').config({ path: ENV_FILE });
 
 const app = express();
+app.use(bodyParser.urlencoded({ extended: false }));
 app.use(bodyParser.json());
-app.use(bodyParser.urlencoded({ extended: true }));
 
+// --- Clientes das APIs ---
 const dialogflowClient = new SessionsClient({ apiEndpoint: `${process.env.LOCATION}-dialogflow.googleapis.com` });
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
-const fallbackPrompt = `
-Você é a Vivi, uma assistente de viagens virtual da agência 'Viaje Fácil Brasil'. Sua personalidade é amigável e prestativa.
-Sua principal tarefa é ajudar na cotação de viagens. No entanto, se o usuário fizer uma pergunta sobre outro assunto, você DEVE responder à pergunta primeiro, e só depois, de forma educada, tentar voltar para a cotação.
-NUNCA use frases como "Sinto muito, como Assistente de IA, só posso oferecer ajuda com..." ou qualquer outra recusa. Responda à pergunta diretamente.
-Lembre-se que o nome da sua agência é Viaje Fácil Brasil.
-Siga exatamente o formato dos exemplos abaixo:
----
-EXEMPLO 1:
-Usuário: qual a capital do Japão?
-Vivi: A capital do Japão é Tóquio. Espero ter ajudado! Agora, podemos continuar com a sua cotação de viagem?
----
-EXEMPLO 2:
-Usuário: quem escreveu Dom Casmurro?
-Vivi: Dom Casmurro foi escrito por Machado de Assis, um dos maiores escritores do Brasil! Voltando à sua viagem, qual o próximo passo?
+// --- Armazenamento do Histórico da Conversa (Simples, em memória) ---
+const conversationHistory = {};
+
+// --- PROMPT ATUALIZADO PARA O NOVO MODELO ---
+const mainPrompt = `
+Você é a Vivi, uma assistente de viagens virtual da agência 'Viaje Fácil Brasil'. Sua personalidade é amigável, proativa e prestativa.
+Seu objetivo é conversar com o usuário, entender suas necessidades e dar sugestões.
+
+**Regras de Decisão:**
+1.  **Converse Naturalmente:** Responda às perguntas do usuário de forma natural. Se pedirem sugestões de viagem ou promoções, seja criativa.
+2.  **Identifique a Hora de Coletar Dados:** Quando você tiver informações suficientes e o usuário confirmar que quer uma cotação, você DEVE parar a conversa e retornar um JSON especial para acionar um fluxo de coleta de dados.
+3.  **Formato do JSON de Ação:** O JSON deve ter a estrutura:
+    {
+      "action": "NOME_DA_ACAO",
+      "response": "A frase que você dirá ao usuário para iniciar a coleta."
+    }
+4.  **Nomes de Ação Válidos:** "iniciar_cotacao_passagem" ou "iniciar_cotacao_cruzeiro".
+
+**Exemplos de Interação:**
+
+EXEMPLO 1 (Consulta Aberta):
+Usuário: Oi, tem alguma promoção de pacote de viagem?
+Vivi: Olá! Temos sim! 🎉 Temos um pacote incrível para a Patagônia em setembro, com tudo incluso. Também temos uma super promoção para resorts em família no nordeste. Você tem interesse em algum desses ou prefere outro tipo de viagem?
+
+EXEMPLO 2 (Decidindo Iniciar o Fluxo):
+Usuário: Gostei da ideia do nordeste. Pode cotar para mim?
+Vivi: (RETORNA APENAS O JSON ABAIXO)
+{
+  "action": "iniciar_cotacao_passagem",
+  "response": "Com certeza! Para te passar os melhores valores para o nordeste, vou iniciar nosso assistente de cotação. É bem rapidinho!"
+}
 `;
 
-// --- SUAS FUNÇÕES PRESERVADAS ---
+// --- FUNÇÕES AUXILIARES (Mantidas conforme seu código) ---
 
-// 1. Sua função de converter a requisição para o Dialogflow, incluindo os queryParams.
-const twilioToDetectIntent = (req) => {
+// 1. Sua função de converter a requisição para o Dialogflow.
+const twilioToDetectIntent = (req, text) => {
   const sessionId = req.body.From.replace('whatsapp:', '');
   const sessionPath = dialogflowClient.projectLocationAgentSessionPath(
     process.env.PROJECT_ID, process.env.LOCATION, process.env.AGENT_ID, sessionId
@@ -44,28 +62,23 @@ const twilioToDetectIntent = (req) => {
   const request = {
     session: sessionPath,
     queryInput: {
-      text: { text: req.body.Body },
+      text: { text: text || req.body.Body },
       languageCode: process.env.LANGUAGE_CODE,
     },
     queryParams: {
       parameters: {
-        fields: {
-          source: {
-            stringValue: 'WHATSAPP',
-            kind: 'stringValue'
-          }
-        }
+        fields: { source: { stringValue: 'WHATSAPP', kind: 'stringValue' } }
       }
     }
   };
   return request;
 };
 
-// 2. Sua função de formatar a resposta do Dialogflow para TwiML.
+// 2. Sua função de formatar a resposta do Dialogflow.
 const detectIntentToTwilio = (dialogflowResponse) => {
   const replies = dialogflowResponse.queryResult.responseMessages
-    .filter(responseMessage => responseMessage.hasOwnProperty('text'))
-    .map(responseMessage => responseMessage.text.text.join(''))
+    .filter(responseMessage => responseMessage.text)
+    .map(responseMessage => responseMessage.text.text.join('\n'))
     .join('\n');
 
   const twiml = new MessagingResponse();
@@ -75,62 +88,84 @@ const detectIntentToTwilio = (dialogflowResponse) => {
   return twiml;
 };
 
-// Função para verificar se a entrada é uma pergunta genérica
-function isGenericQuestion(text) {
-  const questionWords = ['quem', 'qual', 'quais', 'onde', 'quando', 'como', 'por que', 'o que', 'me diga', 'me conte'];
-  const lowerCaseText = text.toLowerCase().trim();
-
-  // Se terminar com '?', é uma pergunta.
-  if (lowerCaseText.endsWith('?')) {
-    return true;
-  }
-
-  const words = lowerCaseText.split(' ');
-  // Se a primeira palavra for de pergunta, é uma pergunta.
-  if (questionWords.includes(words[0])) {
-    return true;
-  }
-
-  // Se a segunda palavra for de pergunta (para casos como "e quem...", "mas qual..."), é uma pergunta.
-  if (words.length > 1 && questionWords.includes(words[1])) {
-    return true;
-  }
-
-  return false;
+// Função para chamar o Dialogflow com um evento
+async function triggerDialogflowEvent(eventName, sessionId) {
+  const sessionPath = dialogflowClient.projectLocationAgentSessionPath(
+    process.env.PROJECT_ID, process.env.LOCATION, process.env.AGENT_ID, sessionId
+  );
+  const request = {
+    session: sessionPath,
+    queryInput: {
+      event: { event: eventName, languageCode: process.env.LANGUAGE_CODE },
+    },
+  };
+  console.log(`Disparando evento: ${eventName} para a sessão ${sessionId}`);
+  const [response] = await dialogflowClient.detectIntent(request);
+  return response;
 }
 
-// --- ROTA PRINCIPAL ATUALIZADA ---
+// --- ROTA PRINCIPAL REATORADA ---
 app.post('/', async (req, res) => {
+  const userInput = req.body.Body;
+  const sessionId = req.body.From.replace('whatsapp:', '');
+  console.log(`[${sessionId}] Mensagem recebida: "${userInput}"`);
+
+  // Inicializa o histórico se for a primeira vez
+  if (!conversationHistory[sessionId]) {
+    conversationHistory[sessionId] = [];
+  }
+
+  // Adiciona a mensagem do usuário ao histórico
+  conversationHistory[sessionId].push({ role: "user", parts: [{ text: userInput }] });
+
+  // Detecta se a intenção é entrar em um fluxo estruturado
+  const detectActionPrompt = `Analise a última mensagem do usuário: "${userInput}". O usuário quer iniciar uma cotação de "passagem" ou "cruzeiro"? Se sim, responda com o JSON de ação correspondente. Se não, responda com "conversar".`;
+
   try {
-    const userInput = req.body.Body;
-    console.log(`Mensagem recebida: "${userInput}"`);
+    const actionModel = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+    const actionResult = await actionModel.generateContent(detectActionPrompt);
+    const actionResponseText = (await actionResult.response).text();
 
-    // NOVA LÓGICA: Verifica se é uma pergunta genérica PRIMEIRO.
-    if (isGenericQuestion(userInput)) {
-      console.log('Pergunta genérica detectada. Acionando IA Generativa diretamente...');
+    let actionJson = null;
+    try {
+      actionJson = JSON.parse(actionResponseText);
+    } catch (e) {
+      // Não é um JSON, continua a conversa normal
+    }
 
-      const fullPrompt = `${fallbackPrompt}\n---\nUsuário: ${userInput}\nVivi:`;
-      const result = await model.generateContent(fullPrompt);
-      const response = await result.response;
-      const geminiText = response.text();
+    if (actionJson && actionJson.action) {
+      // A IA decidiu iniciar um fluxo
+      console.log(`Ação detectada pela IA: ${actionJson.action}`);
 
       const twiml = new MessagingResponse();
-      twiml.message(geminiText);
+      twiml.message(actionJson.response);
 
-      console.log(`Resposta da IA: ${geminiText}`);
+      // Inicia o fluxo no Dialogflow de forma assíncrona
+      triggerDialogflowEvent(actionJson.action, sessionId).then(dialogflowResponse => {
+        const followUpTwiML = detectIntentToTwilio(dialogflowResponse);
+        // Envia a primeira pergunta do fluxo como uma segunda mensagem
+        const client = require('twilio')(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
+        client.messages.create({
+          body: followUpTwiML.message().body,
+          from: `whatsapp:${process.env.TWILIO_PHONE_NUMBER}`,
+          to: req.body.From
+        });
+      }).catch(err => console.error("Erro ao disparar evento no Dialogflow:", err));
+
       return res.type('text/xml').send(twiml.toString());
     }
 
-    // LÓGICA ANTIGA: Se não for uma pergunta, segue o fluxo normal do Dialogflow.
-    console.log('Enviando para o Dialogflow...');
-    const dialogflowRequest = twilioToDetectIntent(req);
-    const [dialogflowResponse] = await dialogflowClient.detectIntent(dialogflowRequest);
+    // Se nenhuma ação for detectada, continua a conversa generativa
+    console.log('Nenhuma ação detectada, continuando conversa com o Gemini.');
+    const chat = model.startChat({ history: conversationHistory[sessionId] });
+    const result = await chat.sendMessage(userInput);
+    const geminiText = (await result.response).text();
 
-    // Usa a SUA função para formatar a resposta
-    const twimlResponse = detectIntentToTwilio(dialogflowResponse);
+    conversationHistory[sessionId].push({ role: "model", parts: [{ text: geminiText }] });
 
-    console.log(`Resposta do Dialogflow: ${twimlResponse.toString()}`);
-    res.type('text/xml').send(twimlResponse.toString());
+    const twiml = new MessagingResponse();
+    twiml.message(geminiText);
+    return res.type('text/xml').send(twiml.toString());
 
   } catch (error) {
     console.error('ERRO GERAL NO WEBHOOK:', error);
@@ -140,14 +175,6 @@ app.post('/', async (req, res) => {
   }
 });
 
-// --- Inicialização do Servidor ---
 const listener = app.listen(process.env.PORT || 8080, () => {
   console.log(`Seu servidor está a ouvir na porta ${listener.address().port}`);
-});
-
-process.on('SIGTERM', () => {
-  listener.close(() => {
-    console.log('Servidor a fechar.');
-    process.exit(0);
-  });
 });
