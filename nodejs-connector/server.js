@@ -15,7 +15,9 @@ app.use(bodyParser.json());
 
 // --- Clientes das APIs ---
 const dialogflowClient = new SessionsClient({ apiEndpoint: `${process.env.LOCATION}-dialogflow.googleapis.com` });
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+// --- MUDANÇA CRUCIAL DE AUTENTICAÇÃO ---
+// Removemos a API Key. A biblioteca agora usará as credenciais do ambiente (ADC).
+const genAI = new GoogleGenerativeAI(process.env.PROJECT_ID, process.env.LOCATION);
 const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
 // --- Armazenamento do Histórico da Conversa (Simples, em memória) ---
