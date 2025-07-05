@@ -203,7 +203,7 @@ app.post('/', async (req, res) => {
     // --- MUDANÇA 3: Usando o método correto para a nova biblioteca ---
     const result = await generativeModel.generateContent(fullPrompt);
     const response = await result.response;
-    const geminiText = response.candidates[0].content.parts[0].text;
+    const geminiText = response.candidates[0].part.text;
 
     console.log(`Texto da IA: ${geminiText}`);
 
