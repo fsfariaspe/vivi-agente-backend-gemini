@@ -140,55 +140,56 @@ async function triggerDialogflowEvent(eventName, sessionId, produto) {
   return response;
 }
 
-// Rota principal (ajustada)
+// --- ROTA PRINCIPAL CORRIGIDA ---
 app.post('/', async (req, res) => {
   const userInput = req.body.Body;
-  const sessionId = req.body.From.replace('whatsapp:', '');
+  const sessionId = req.body.From; // Usar o ID completo com 'whatsapp:'
+  console.log(`[${sessionId}] Mensagem recebida: "${userInput}"`);
 
   if (!conversationHistory[sessionId]) {
     conversationHistory[sessionId] = [];
   }
-  conversationHistory[sessionId].push({ role: "user", parts: [{ text: userInput }] });
 
   try {
-    const chat = model.startChat({ history: conversationHistory[sessionId] });
-    const result = await chat.sendMessage(userInput);
-    const geminiResponse = (await result.response).text();
+    // Prepara o request para o Gemini, incluindo o histórico
+    const contents = [
+      ...conversationHistory[sessionId],
+      { role: 'user', parts: [{ text: userInput }] }
+    ];
 
-    let actionJson = null;
-    try {
-      actionJson = JSON.parse(geminiResponse);
-    } catch (e) {
-      // Não é um JSON, é uma resposta de texto normal.
-    }
+    console.log('Enviando para o Gemini via Vertex AI...');
 
-    let responseToSend;
+    const result = await generativeModel.generateContent({
+      contents: contents, // Envia o histórico e a nova mensagem
+      systemInstruction: {
+        role: 'system',
+        parts: [{ text: mainPrompt }]
+      }
+    });
 
-    if (actionJson && actionJson.action && actionJson.response) {
-      // A IA decidiu iniciar um fluxo
-      console.log(`Ação detectada: ${actionJson.action}`);
-      responseToSend = actionJson.response; // Apenas a frase de resposta
+    const response = await result.response;
+    const geminiText = response.candidates[0].content.parts[0].text;
 
-      // Dispara o evento para iniciar o fluxo no Dialogflow em segundo plano
-      // (O usuário não verá a resposta disso, apenas a frase acima)
-      triggerDialogflowEvent(actionJson.action, sessionId, actionJson.action.includes('passagem') ? 'passagem' : 'cruzeiro')
-        .catch(err => console.error("Erro ao disparar evento no Dialogflow:", err));
+    console.log(`Texto da IA: ${geminiText}`);
 
-    } else {
-      // É uma conversa normal
-      responseToSend = geminiResponse;
-    }
-
-    conversationHistory[sessionId].push({ role: "model", parts: [{ text: responseToSend }] });
+    // Atualiza o histórico com a resposta do modelo
+    conversationHistory[sessionId].push({ role: "user", parts: [{ text: userInput }] });
+    conversationHistory[sessionId].push({ role: "model", parts: [{ text: geminiText }] });
 
     const twiml = new MessagingResponse();
-    twiml.message(responseToSend);
+    twiml.message(geminiText);
     res.type('text/xml').send(twiml.toString());
 
   } catch (error) {
-    console.error('ERRO GERAL NO WEBHOOK:', error);
+    console.error('--- ERRO CAPTURADO NO WEBHOOK ---');
+    console.error('MENSAGEM:', error.message);
+    if (error.response) {
+      console.error('RESPOSTA DO ERRO:', JSON.stringify(error.response, null, 2));
+    }
+    console.error('STACK TRACE:', error.stack);
+
     const errorTwiml = new MessagingResponse();
-    errorTwiml.message('Ocorreu um erro inesperado.');
+    errorTwiml.message('Desculpe, estou com um problema técnico para gerar sua resposta. Tente novamente.');
     res.status(500).type('text/xml').send(errorTwiml.toString());
   }
 });
