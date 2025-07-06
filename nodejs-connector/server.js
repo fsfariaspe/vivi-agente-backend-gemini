@@ -27,7 +27,7 @@ const dialogflowClient = new SessionsClient({ apiEndpoint: `${process.env.LOCATI
 
 // Inicialização do cliente VertexAI (autenticação via ambiente)
 const vertex_ai = new VertexAI({ project: process.env.PROJECT_ID, location: 'us-central1' });
-const model = 'gemini-1.5-flash-001';
+const model = 'gemini-1.5-flash';
 
 const generativeModel = vertex_ai.getGenerativeModel({
   model: model,
