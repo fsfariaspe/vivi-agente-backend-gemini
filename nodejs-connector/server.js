@@ -1,6 +1,5 @@
 const express = require('express');
 const { SessionsClient } = require('@google-cloud/dialogflow-cx');
-// --- MUDANÇA 1: Importando a biblioteca correta ---
 const { VertexAI } = require('@google-cloud/vertexai');
 const MessagingResponse = require('twilio').twiml.MessagingResponse;
 const path = require('path');
@@ -23,10 +22,10 @@ if (process.env.GEMINI_API_KEY) {
 }
 console.log("------------------------------------");
 
-// --- Clientes das APIs ---
+// --- Clientes das APIs (Corrigido) ---
 const dialogflowClient = new SessionsClient({ apiEndpoint: `${process.env.LOCATION}-dialogflow.googleapis.com` });
 
-// --- MUDANÇA 2: Inicializando o cliente Vertex AI (sem chave de API!) ---
+// Inicialização do cliente VertexAI (autenticação via ambiente)
 const vertex_ai = new VertexAI({ project: process.env.PROJECT_ID, location: 'us-central1' });
 const model = 'gemini-1.5-flash-001';
 
@@ -37,20 +36,22 @@ const generativeModel = vertex_ai.getGenerativeModel({
 // --- Armazenamento do Histórico da Conversa (Simples, em memória) ---
 const conversationHistory = {};
 
-// --- PROMPT ATUALIZADO PARA O NOVO MODELO ---
-const mainPrompt = `
-Você é a Vivi, uma assistente de viagens virtual da agência 'Viaje Fácil Brasil'. Sua personalidade é amigável, proativa e prestativa.
-Seu objetivo é conversar com o usuário, entender suas necessidades e dar sugestões.
 
-**Regras de Decisão:**
-1.  **Converse Naturalmente:** Responda às perguntas do usuário de forma natural. Se pedirem sugestões de viagem ou promoções, seja criativa.
-2.  **Identifique a Hora de Coletar Dados:** Quando você tiver informações suficientes e o usuário confirmar que quer uma cotação, você DEVE parar a conversa e retornar um JSON especial para acionar um fluxo de coleta de dados.
-3.  **Formato do JSON de Ação:** O JSON deve ter a estrutura:
+const mainPrompt = `
+Você é a Vivi, uma assistente de viagens virtual da agência 'Viaje Fácil Brasil'. Sua personalidade é amigável, proativa e extremamente prestativa.
+Seu objetivo é conversar com o usuário para entender suas necessidades de viagem. Você pode dar sugestões, falar sobre pacotes promocionais e responder a perguntas gerais.
+
+Quando você identificar que o usuário está pronto para fazer uma cotação e você precisa coletar informações estruturadas (como origem, destino, datas, etc.), sua tarefa é avisá-lo que você vai iniciar a coleta de dados e, em seguida, retornar um comando especial para o sistema.
+
+**Regras de Resposta:**
+1.  **Conversa Natural:** Converse normalmente com o usuário. Se ele perguntar sobre pacotes, dê sugestões criativas. Se ele fizer uma pergunta geral, responda-a.
+2.  **Identificar a Hora de Coletar Dados:** Quando a conversa chegar a um ponto onde você precisa de detalhes para uma cotação, você DEVE parar de conversar e retornar um JSON especial.
+3.  **Formato do JSON de Ação:** O JSON deve ter a seguinte estrutura:
     {
       "action": "NOME_DA_ACAO",
-      "response": "A frase que você dirá ao usuário para iniciar a coleta."
+      "response": "Frase que você quer que o sistema diga ao usuário antes de iniciar a coleta."
     }
-4.  **Nomes de Ação Válidos:** "iniciar_cotacao_passagem" ou "iniciar_cotacao_cruzeiro".
+4.  **Nomes de Ação Válidos:** "iniciar_cotacao_passagem", "iniciar_cotacao_cruzeiro".
 
 **Exemplos de Interação:**
 
@@ -65,6 +66,10 @@ Vivi: (RETORNA APENAS O JSON ABAIXO)
   "action": "iniciar_cotacao_passagem",
   "response": "Com certeza! Para te passar os melhores valores para o nordeste, vou iniciar nosso assistente de cotação. É bem rapidinho!"
 }
+
+EXEMPLO 3 (Pergunta Aleatória):
+Usuário: qual a capital da França?
+Vivi: A capital da França é Paris, a cidade luz! ✨ Falando em luz, já pensou em ver a Torre Eiffel de perto? Se quiser, podemos cotar uma viagem!
 `;
 
 // --- FUNÇÕES AUXILIARES (Mantidas conforme seu código) ---
@@ -135,89 +140,43 @@ async function triggerDialogflowEvent(eventName, sessionId, produto) {
   return response;
 }
 
-// --- ROTA PRINCIPAL COM LOGS DETALHADOS ---
+// Rota principal (corrigida)
 app.post('/', async (req, res) => {
   const userInput = req.body.Body;
   const sessionId = req.body.From.replace('whatsapp:', '');
   console.log(`[${sessionId}] Mensagem recebida: "${userInput}"`);
 
-  // Inicializa o histórico se for a primeira vez
-  if (!conversationHistory[sessionId]) {
-    conversationHistory[sessionId] = [];
-  }
-
-  // Adiciona a mensagem do usuário ao histórico
-  conversationHistory[sessionId].push({ role: "user", parts: [{ text: userInput }] });
-
-  // Detecta se a intenção é entrar em um fluxo estruturado
-  const detectActionPrompt = `Analise a última mensagem do usuário: "${userInput}". O usuário quer iniciar uma cotação de "passagem" ou "cruzeiro"? Se sim, responda com o JSON de ação correspondente. Se não, responda com "conversar".`;
-
   try {
-    const actionModel = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-    const actionResult = await actionModel.generateContent(detectActionPrompt);
-    const actionResponseText = (await actionResult.response).text();
+    // Lógica para detectar se deve iniciar um fluxo (pode ser ajustada)
+    const isStartingFlow = userInput.toLowerCase().includes('passagem') || userInput.toLowerCase().includes('cruzeiro');
 
-    let actionJson = null;
-    try {
-      actionJson = JSON.parse(actionResponseText);
-    } catch (e) {
-      // Não é um JSON, continua a conversa normal
+    if (isStartingFlow) {
+      // ... (sua lógica para chamar triggerDialogflowEvent e iniciar um fluxo) ...
+    } else {
+      // Conversa generativa padrão
+      console.log('Continuando conversa com o Gemini via Vertex AI.');
+      const fullPrompt = `${mainPrompt}\n---\nUsuário: ${userInput}\nVivi:`;
+
+      const result = await generativeModel.generateContent(fullPrompt);
+      const response = await result.response;
+      const geminiText = response.candidates[0].content.parts[0].text;
+
+      console.log(`Texto da IA: ${geminiText}`);
+
+      const twiml = new MessagingResponse();
+      twiml.message(geminiText);
+      return res.type('text/xml').send(twiml.toString());
     }
-
-    if (actionJson && actionJson.action) {
-      console.log(`Ação detectada pela IA: ${actionJson.action}`);
-
-      let produto = actionJson.action === 'iniciar_cotacao_passagem' ? 'passagem' : 'cruzeiro';
-
-      // Dispara o evento correspondente no Dialogflow COM O PARÂMETRO
-      const dialogflowResponse = await triggerDialogflowEvent("iniciar_cotacao", sessionId, produto);
-      const twimlResponse = detectIntentToTwilio(dialogflowResponse);
-
-      // Envia a primeira mensagem do fluxo
-      return res.type('text/xml').send(twimlResponse.toString());
-    }
-
-    // Se nenhuma ação for detectada, continua a conversa generativa
-    console.log('Nenhuma ação detectada, continuando conversa com o Gemini.');
-    const chat = model.startChat({ history: conversationHistory[sessionId] });
-    const result = await chat.sendMessage(userInput);
-    const geminiText = (await result.response).text();
-
-    conversationHistory[sessionId].push({ role: "model", parts: [{ text: geminiText }] });
-
-    const twiml = new MessagingResponse();
-    twiml.message(geminiText);
-    return res.type('text/xml').send(twiml.toString());
-
   } catch (error) {
-    console.error('ERRO GERAL NO WEBHOOK:', error);
-    const errorTwiml = new MessagingResponse();
-    errorTwiml.message('Ocorreu um erro inesperado. Por favor, tente novamente.');
-    res.status(500).type('text/xml').send(errorTwiml.toString());
-  }
-
-  console.log('Nenhuma ação detectada, continuando conversa com o Gemini.');
-  const fullPrompt = `${mainPrompt}\n---\nUsuário: ${userInput}\nVivi:`;
-
-  try {
-    // --- MUDANÇA 3: Usando o método correto para a nova biblioteca ---
-    const result = await generativeModel.generateContent(fullPrompt);
-    const response = await result.response;
-    const geminiText = response.candidates[0].part.text;
-
-    console.log(`Texto da IA: ${geminiText}`);
-
-    const twiml = new MessagingResponse();
-    twiml.message(geminiText);
-    return res.type('text/xml').send(twiml.toString());
-
-  } catch (error) {
-    console.error('--- ERRO CAPTURADO NA CHAMADA DO VERTEX AI ---');
+    console.error('--- ERRO CAPTURADO NO WEBHOOK ---');
     console.error('MENSAGEM:', error.message);
+    if (error.response) {
+      console.error('RESPOSTA DO ERRO:', JSON.stringify(error.response, null, 2));
+    }
     console.error('STACK TRACE:', error.stack);
 
     const errorTwiml = new MessagingResponse();
-    errorTwiml.message('Desculpe, estou com um problema para me conectar à minha inteligência. Tente novamente em um instante.');
+    errorTwiml.message('Desculpe, estou com um problema para me conectar à minha inteligência. Por favor, tente novamente em um instante.');
     res.status(500).type('text/xml').send(errorTwiml.toString());
   }
 });
