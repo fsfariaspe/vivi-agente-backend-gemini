@@ -66,7 +66,11 @@ async function triggerDialogflowEvent(eventName, sessionId, produto) {
     const request = {
         session: sessionPath,
         queryInput: {
-            event: { event: eventName, languageCode: process.env.LANGUAGE_CODE },
+            event: {
+                event: eventName,
+            },
+            // ▼▼▼ CORREÇÃO APLICADA AQUI ▼▼▼
+            languageCode: process.env.LANGUAGE_CODE
         },
         queryParams: queryParams
     };
