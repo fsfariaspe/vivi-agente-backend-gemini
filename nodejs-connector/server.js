@@ -140,9 +140,15 @@ app.post('/', async (req, res) => {
   }
 
   try {
-    const chat = generativeModel.startChat({ history: conversationHistory[sessionId], systemInstruction: { role: 'system', parts: [{ text: mainPrompt }] } });
+    const chat = generativeModel.startChat({
+      history: conversationHistory[sessionId],
+      systemInstruction: { role: 'system', parts: [{ text: mainPrompt }] }
+    });
     const result = await chat.sendMessage(userInput);
-    const geminiResponseText = (await result.response).text();
+    const response = await result.response;
+
+    // --- CORREÇÃO DA SINTAXE APLICADA AQUI ---
+    const geminiResponseText = response.candidates[0].content.parts[0].text;
 
     let actionJson = null;
     let responseToSend = geminiResponseText; // Resposta padrão é o texto da IA
