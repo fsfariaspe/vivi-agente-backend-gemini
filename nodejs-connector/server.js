@@ -149,32 +149,35 @@ app.post('/', async (req, res) => {
     const geminiResponseText = response.candidates[0].content.parts[0].text;
 
     let actionJson = null;
-    let responseToSend = geminiResponseText; // Resposta padrão é o texto da IA
+    let responseToSend = geminiResponseText;
 
-    // Tenta extrair e analisar o JSON da resposta
-    // Esta expressão regular busca por um bloco de código JSON
+    // ▼▼▼ CORREÇÃO APLICADA AQUI ▼▼▼
+    // Tenta extrair o JSON de dentro de um bloco de código, se houver.
     const jsonMatch = geminiResponseText.match(/```json\n([\s\S]*?)\n```/);
     if (jsonMatch && jsonMatch[1]) {
       try {
         actionJson = JSON.parse(jsonMatch[1]);
       } catch (e) {
         console.error("Falha ao analisar o JSON extraído:", e);
-        // Se falhar, mantém a resposta como o texto original da IA
-        responseToSend = geminiResponseText;
+        responseToSend = "Tive uma ideia, mas me atrapalhei ao explicar. Podemos tentar de novo?";
+      }
+    } else {
+      // Se não houver bloco de código, tenta analisar o texto inteiro
+      try {
+        actionJson = JSON.parse(geminiResponseText);
+      } catch (e) {
+        // Não é JSON, é uma resposta de texto normal.
       }
     }
 
-    // Se o JSON foi analisado com sucesso, executa a ação
     if (actionJson && actionJson.action && actionJson.response) {
       console.log(`Ação detectada: ${actionJson.action}`);
-      responseToSend = actionJson.response; // Usa apenas a frase de resposta
+      responseToSend = actionJson.response;
 
-      // Dispara o evento para iniciar o fluxo no Dialogflow
       triggerDialogflowEvent(actionJson.action, sessionId)
         .catch(err => console.error("Erro ao disparar evento no Dialogflow:", err));
     }
 
-    // Atualiza o histórico com a interação
     conversationHistory[sessionId].push({ role: "user", parts: [{ text: userInput }] });
     conversationHistory[sessionId].push({ role: "model", parts: [{ text: responseToSend }] });
 
