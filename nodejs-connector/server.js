@@ -146,23 +146,25 @@ app.post('/', async (req, res) => {
     });
     const result = await chat.sendMessage(userInput);
     const response = await result.response;
-
-    // --- CORREÇÃO DA SINTAXE APLICADA AQUI ---
     const geminiResponseText = response.candidates[0].content.parts[0].text;
 
     let actionJson = null;
     let responseToSend = geminiResponseText; // Resposta padrão é o texto da IA
 
     // Tenta extrair e analisar o JSON da resposta
+    // Esta expressão regular busca por um bloco de código JSON
     const jsonMatch = geminiResponseText.match(/```json\n([\s\S]*?)\n```/);
     if (jsonMatch && jsonMatch[1]) {
       try {
         actionJson = JSON.parse(jsonMatch[1]);
       } catch (e) {
         console.error("Falha ao analisar o JSON extraído:", e);
+        // Se falhar, mantém a resposta como o texto original da IA
+        responseToSend = geminiResponseText;
       }
     }
 
+    // Se o JSON foi analisado com sucesso, executa a ação
     if (actionJson && actionJson.action && actionJson.response) {
       console.log(`Ação detectada: ${actionJson.action}`);
       responseToSend = actionJson.response; // Usa apenas a frase de resposta
