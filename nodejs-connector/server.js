@@ -38,12 +38,12 @@ Seu objetivo é conversar com o usuário para entender suas necessidades de viag
 Quando você identificar que o usuário está pronto para fazer uma cotação e você precisa coletar informações estruturadas (como origem, destino, datas, etc.), sua tarefa é avisá-lo que você vai iniciar a coleta de dados e, em seguida, retornar um comando especial para o sistema.
 
 **Regras de Resposta:**
-1.  **Conversa Natural:** Converse normalmente com o usuário. Se ele perguntar sobre pacotes, dê sugestões criativas. Se ele fizer uma pergunta geral, responda-a.
-2.  **Identificar a Hora de Coletar Dados:** Quando a conversa chegar a um ponto onde você precisa de detalhes para uma cotação, você DEVE parar de conversar e retornar um JSON especial.
-3.  **Formato do JSON de Ação:** O JSON deve ter a seguinte estrutura:
+1.  **Conversa Natural:** Converse normalmente com o usuário, seja proativa e dê sugestões.
+2.  **Seja Decisiva:** Se o usuário expressar um desejo claro de obter uma cotação (usando palavras como "cotar", "quanto custa", "ver preço", "pode ver pra mim?"), você **DEVE** parar a conversa e retornar o JSON de ação imediatamente, sem fazer mais perguntas de confirmação.
+3.  **Formato do JSON de Ação:** O JSON deve ser a **ÚNICA COISA** na sua resposta. A estrutura deve ser:
     {
       "action": "NOME_DA_ACAO",
-      "response": "Frase que você quer que o sistema diga ao usuário antes de iniciar a coleta."
+      "response": "A frase que você dirá ao usuário para iniciar a coleta."
     }
 4.  **Nomes de Ação Válidos:** "iniciar_cotacao_passagem", "iniciar_cotacao_cruzeiro".
 
@@ -139,58 +139,46 @@ app.post('/', async (req, res) => {
     conversationHistory[sessionId] = [];
   }
 
+  const chat = generativeModel.startChat({
+    history: conversationHistory[sessionId],
+    systemInstruction: { role: 'system', parts: [{ text: mainPrompt }] }
+  });
+  const result = await chat.sendMessage(userInput);
+  const response = await result.response;
+  const geminiResponseText = response.candidates[0].content.parts[0].text;
+
+  let actionJson = null;
+  let responseToSend = geminiResponseText;
+
+  // ▼▼▼ LÓGICA DE PARSING MAIS ROBUSTA ▼▼▼
   try {
-    const chat = generativeModel.startChat({
-      history: conversationHistory[sessionId],
-      systemInstruction: { role: 'system', parts: [{ text: mainPrompt }] }
-    });
-    const result = await chat.sendMessage(userInput);
-    const response = await result.response;
-    const geminiResponseText = response.candidates[0].content.parts[0].text;
-
-    let actionJson = null;
-    let responseToSend = geminiResponseText;
-
-    // ▼▼▼ CORREÇÃO APLICADA AQUI ▼▼▼
-    // Tenta extrair o JSON de dentro de um bloco de código, se houver.
-    const jsonMatch = geminiResponseText.match(/```json\n([\s\S]*?)\n```/);
-    if (jsonMatch && jsonMatch[1]) {
-      try {
-        actionJson = JSON.parse(jsonMatch[1]);
-      } catch (e) {
-        console.error("Falha ao analisar o JSON extraído:", e);
-        responseToSend = "Tive uma ideia, mas me atrapalhei ao explicar. Podemos tentar de novo?";
-      }
-    } else {
-      // Se não houver bloco de código, tenta analisar o texto inteiro
-      try {
-        actionJson = JSON.parse(geminiResponseText);
-      } catch (e) {
-        // Não é JSON, é uma resposta de texto normal.
-      }
+    // Tenta encontrar e extrair um objeto JSON da string
+    const jsonMatch = geminiResponseText.match(/\{[\s\S]*\}/);
+    if (jsonMatch && jsonMatch[0]) {
+      actionJson = JSON.parse(jsonMatch[0]);
     }
-
-    if (actionJson && actionJson.action && actionJson.response) {
-      console.log(`Ação detectada: ${actionJson.action}`);
-      responseToSend = actionJson.response;
-
-      triggerDialogflowEvent(actionJson.action, sessionId)
-        .catch(err => console.error("Erro ao disparar evento no Dialogflow:", err));
-    }
-
-    conversationHistory[sessionId].push({ role: "user", parts: [{ text: userInput }] });
-    conversationHistory[sessionId].push({ role: "model", parts: [{ text: responseToSend }] });
-
-    const twiml = new MessagingResponse();
-    twiml.message(responseToSend);
-    res.type('text/xml').send(twiml.toString());
-
-  } catch (error) {
-    console.error('ERRO GERAL NO WEBHOOK:', error);
-    const errorTwiml = new MessagingResponse();
-    errorTwiml.message('Desculpe, ocorreu um problema e não consigo responder agora.');
-    res.status(500).type('text/xml').send(errorTwiml.toString());
+  } catch (e) {
+    console.error("Não foi possível analisar a resposta como JSON, tratando como texto normal.", e);
+    actionJson = null; // Garante que não prossiga se o JSON for inválido
   }
+
+  // Se um JSON de ação válido foi encontrado
+  if (actionJson && actionJson.action && actionJson.response) {
+    console.log(`Ação detectada: ${actionJson.action}`);
+    responseToSend = actionJson.response; // Usa apenas a frase de resposta
+
+    // Dispara o evento para iniciar o fluxo no Dialogflow
+    triggerDialogflowEvent(actionJson.action, sessionId)
+      .catch(err => console.error("Erro ao disparar evento no Dialogflow:", err));
+  }
+
+  // Atualiza o histórico com a interação
+  conversationHistory[sessionId].push({ role: "user", parts: [{ text: userInput }] });
+  conversationHistory[sessionId].push({ role: "model", parts: [{ text: responseToSend }] });
+
+  const twiml = new MessagingResponse();
+  twiml.message(responseToSend);
+  res.type('text/xml').send(twiml.toString());
 });
 
 const listener = app.listen(process.env.PORT || 8080, () => {
