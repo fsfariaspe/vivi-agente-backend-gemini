@@ -117,9 +117,12 @@ app.post('/', async (req, res) => {
             console.log(`Ação detectada: ${actionJson.action}`);
             responseToSend = actionJson.response;
 
+            // ▼▼▼ CORREÇÃO APLICADA AQUI ▼▼▼
+            // Determina qual produto foi escolhido e qual evento genérico disparar
             let produto = actionJson.action === 'iniciar_cotacao_passagem' ? 'passagem' : 'cruzeiro';
 
-            triggerDialogflowEvent(actionJson.action, sessionId, produto)
+            // Dispara um evento genérico 'iniciar_cotacao' e passa o produto como parâmetro
+            triggerDialogflowEvent('iniciar_cotacao', sessionId, produto)
                 .catch(err => console.error("Erro ao disparar evento no Dialogflow:", err));
         }
 
