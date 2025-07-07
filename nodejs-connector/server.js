@@ -5,9 +5,7 @@ const MessagingResponse = require('twilio').twiml.MessagingResponse;
 const path = require('path');
 const bodyParser = require('body-parser');
 
-// --- Configurações Iniciais ---
-const ENV_FILE = path.join(__dirname, '.env');
-require('dotenv').config({ path: ENV_FILE });
+require('dotenv').config();
 
 const app = express();
 app.use(bodyParser.urlencoded({ extended: false }));
@@ -32,10 +30,6 @@ const model = 'gemini-2.5-flash';
 const generativeModel = vertex_ai.getGenerativeModel({
   model: model,
 });
-
-// --- Armazenamento do Histórico da Conversa (Simples, em memória) ---
-const conversationHistory = {};
-
 
 const mainPrompt = `
 Você é a Vivi, uma assistente de viagens virtual da agência 'Viaje Fácil Brasil'. Sua personalidade é amigável, proativa e extremamente prestativa.
@@ -109,32 +103,28 @@ const detectIntentToTwilio = (dialogflowResponse) => {
   return twiml;
 };
 
+
 // Função para chamar o Dialogflow com um evento e um parâmetro
+const conversationHistory = {};
+
 async function triggerDialogflowEvent(eventName, sessionId, produto) {
   const sessionPath = dialogflowClient.projectLocationAgentSessionPath(
     process.env.PROJECT_ID, process.env.LOCATION, process.env.AGENT_ID, sessionId
   );
-
-  // Monta os parâmetros que serão enviados com o evento
   const queryParams = {
     parameters: {
       fields: {
-        produto_escolhido: {
-          stringValue: produto,
-          kind: 'stringValue'
-        }
+        produto_escolhido: { stringValue: produto, kind: 'stringValue' }
       }
     }
   };
-
   const request = {
     session: sessionPath,
     queryInput: {
       event: { event: eventName, languageCode: process.env.LANGUAGE_CODE },
     },
-    queryParams: queryParams // Adiciona os parâmetros aqui
+    queryParams: queryParams
   };
-
   console.log(`Disparando evento: ${eventName} com produto: ${produto}`);
   const [response] = await dialogflowClient.detectIntent(request);
   return response;
@@ -143,53 +133,51 @@ async function triggerDialogflowEvent(eventName, sessionId, produto) {
 // --- ROTA PRINCIPAL CORRIGIDA ---
 app.post('/', async (req, res) => {
   const userInput = req.body.Body;
-  const sessionId = req.body.From; // Usar o ID completo com 'whatsapp:'
-  console.log(`[${sessionId}] Mensagem recebida: "${userInput}"`);
+  const sessionId = req.body.From.replace('whatsapp:', '');
 
   if (!conversationHistory[sessionId]) {
     conversationHistory[sessionId] = [];
   }
 
   try {
-    // Prepara o request para o Gemini, incluindo o histórico
-    const contents = [
-      ...conversationHistory[sessionId],
-      { role: 'user', parts: [{ text: userInput }] }
-    ];
+    const chat = generativeModel.startChat({ history: conversationHistory[sessionId], systemInstruction: { role: 'system', parts: [{ text: mainPrompt }] } });
+    const result = await chat.sendMessage(userInput);
+    const geminiResponseText = (await result.response).text();
 
-    console.log('Enviando para o Gemini via Vertex AI...');
+    let actionJson = null;
+    let responseToSend = geminiResponseText; // Resposta padrão é o texto da IA
 
-    const result = await generativeModel.generateContent({
-      contents: contents, // Envia o histórico e a nova mensagem
-      systemInstruction: {
-        role: 'system',
-        parts: [{ text: mainPrompt }]
+    // Tenta extrair e analisar o JSON da resposta
+    const jsonMatch = geminiResponseText.match(/```json\n([\s\S]*?)\n```/);
+    if (jsonMatch && jsonMatch[1]) {
+      try {
+        actionJson = JSON.parse(jsonMatch[1]);
+      } catch (e) {
+        console.error("Falha ao analisar o JSON extraído:", e);
       }
-    });
+    }
 
-    const response = await result.response;
-    const geminiText = response.candidates[0].content.parts[0].text;
+    if (actionJson && actionJson.action && actionJson.response) {
+      console.log(`Ação detectada: ${actionJson.action}`);
+      responseToSend = actionJson.response; // Usa apenas a frase de resposta
 
-    console.log(`Texto da IA: ${geminiText}`);
+      // Dispara o evento para iniciar o fluxo no Dialogflow
+      triggerDialogflowEvent(actionJson.action, sessionId)
+        .catch(err => console.error("Erro ao disparar evento no Dialogflow:", err));
+    }
 
-    // Atualiza o histórico com a resposta do modelo
+    // Atualiza o histórico com a interação
     conversationHistory[sessionId].push({ role: "user", parts: [{ text: userInput }] });
-    conversationHistory[sessionId].push({ role: "model", parts: [{ text: geminiText }] });
+    conversationHistory[sessionId].push({ role: "model", parts: [{ text: responseToSend }] });
 
     const twiml = new MessagingResponse();
-    twiml.message(geminiText);
+    twiml.message(responseToSend);
     res.type('text/xml').send(twiml.toString());
 
   } catch (error) {
-    console.error('--- ERRO CAPTURADO NO WEBHOOK ---');
-    console.error('MENSAGEM:', error.message);
-    if (error.response) {
-      console.error('RESPOSTA DO ERRO:', JSON.stringify(error.response, null, 2));
-    }
-    console.error('STACK TRACE:', error.stack);
-
+    console.error('ERRO GERAL NO WEBHOOK:', error);
     const errorTwiml = new MessagingResponse();
-    errorTwiml.message('Desculpe, estou com um problema técnico para gerar sua resposta. Tente novamente.');
+    errorTwiml.message('Desculpe, ocorreu um problema e não consigo responder agora.');
     res.status(500).type('text/xml').send(errorTwiml.toString());
   }
 });
