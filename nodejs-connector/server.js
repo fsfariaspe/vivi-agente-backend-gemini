@@ -115,15 +115,27 @@ app.post('/', async (req, res) => {
 
         if (actionJson && actionJson.action && actionJson.response) {
             console.log(`Ação detectada: ${actionJson.action}`);
-            responseToSend = actionJson.response;
 
-            // ▼▼▼ CORREÇÃO APLICADA AQUI ▼▼▼
-            // Determina qual produto foi escolhido e qual evento genérico disparar
+            // Mensagem de transição da IA
+            let transitionMessage = actionJson.response;
+
+            // Determina o produto para o parâmetro
             let produto = actionJson.action === 'iniciar_cotacao_passagem' ? 'passagem' : 'cruzeiro';
 
-            // Dispara um evento genérico 'iniciar_cotacao' e passa o produto como parâmetro
-            triggerDialogflowEvent('iniciar_cotacao', sessionId, produto)
-                .catch(err => console.error("Erro ao disparar evento no Dialogflow:", err));
+            // ▼▼▼ CORREÇÃO APLICADA AQUI ▼▼▼
+            // Dispara o evento E ESPERA pela primeira resposta do Dialogflow
+            const dialogflowResponse = await triggerDialogflowEvent('iniciar_cotacao', sessionId, produto);
+
+            // Extrai a primeira mensagem do fluxo do Dialogflow
+            const flowFirstMessage = dialogflowResponse.queryResult.responseMessages
+                .filter(m => m.text)
+                .map(m => m.text.text.join('\n'))
+                .join('\n');
+
+            // Concatena a mensagem da IA com a primeira pergunta do fluxo
+            responseToSend = `${transitionMessage}\n\n${flowFirstMessage}`;
+
+            // O resto da lógica de envio permanece, mas não precisamos mais chamar o triggerDialogflowEvent no final
         }
 
         conversationHistory[sessionId].push({ role: "user", parts: [{ text: userInput }] });
