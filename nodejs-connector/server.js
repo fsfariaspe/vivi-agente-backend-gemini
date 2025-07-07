@@ -54,7 +54,7 @@ const conversationHistory = {};
 // Função para chamar o Dialogflow com um evento e um parâmetro
 async function triggerDialogflowEvent(eventName, sessionId, produto) {
     const sessionPath = dialogflowClient.projectLocationAgentSessionPath(
-        process.env.PROJECT_ID, 'global', process.env.AGENT_ID, sessionId
+        process.env.PROJECT_ID, process.env.LOCATION, process.env.AGENT_ID, sessionId
     );
     const queryParams = {
         parameters: {
