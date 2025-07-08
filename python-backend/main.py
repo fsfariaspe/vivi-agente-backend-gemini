@@ -159,5 +159,22 @@ def webhook_principal():
     request_json = request.get_json(silent=True)
     logger.info("--- CHAMADA WEBHOOK RECEBIDA ---")
     executar_logica_negocio(request_json)
+
     texto_resposta = "Sua solicitação foi registrada com sucesso! Em instantes, um de nossos especialistas entrará em contato. Obrigado! 😊"
-    return jsonify({"fulfillment_response": {"messages": [{"text": {"text": [texto_resposta]}}]}})
+
+    # ▼▼▼ CORREÇÃO APLICADA AQUI ▼▼▼
+    # Adicionando o "sinal secreto" ao lado da mensagem de texto
+    payload_final = {
+        "flow_status": "finished"
+    }
+
+    # Montando a resposta completa para o Dialogflow
+    response_data = {
+        "fulfillment_response": {
+            "messages": [
+                {"text": {"text": [texto_resposta]}},
+                {"payload": payload_final} 
+            ]
+        }
+    }
+    return jsonify(response_data)
