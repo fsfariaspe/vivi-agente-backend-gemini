@@ -157,3 +157,7 @@ app.post('/', async (req, res) => {
         res.status(500).type('text/xml').send(errorTwiml.toString());
     }
 });
+
+const listener = app.listen(process.env.PORT || 8080, () => {
+    console.log(`Seu servidor está a ouvir na porta ${listener.address().port}`);
+});
