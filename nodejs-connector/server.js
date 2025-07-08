@@ -163,7 +163,9 @@ app.post('/', async (req, res) => {
 
         if (actionJson && actionJson.action) {
             console.log(`Ação detectada: ${actionJson.action}`);
-            responseToSend = actionJson.response;
+
+            // Mensagem de transição da IA
+            const transitionMessage = actionJson.response || "Ok, vamos começar!";
 
             // ▼▼▼ ATIVA O MODO DE FLUXO ▼▼▼
             conversationState[sessionId] = 'IN_FLOW';
@@ -171,10 +173,18 @@ app.post('/', async (req, res) => {
 
             const produto = actionJson.action.includes('passagem') ? 'passagem' : 'cruzeiro';
 
-            // Dispara o evento e envia a primeira mensagem do Dialogflow
+            // Dispara o evento e espera pela primeira resposta do Dialogflow
             const dialogflowResponse = await triggerDialogflowEvent('iniciar_cotacao', sessionId, produto);
-            const flowFirstMessage = detectIntentToTwilio(dialogflowResponse).message().body;
-            responseToSend = `${responseToSend}\n\n${flowFirstMessage}`;
+
+            // ▼▼▼ CORREÇÃO APLICADA AQUI ▼▼▼
+            // Extrai corretamente a primeira mensagem do fluxo do Dialogflow
+            const flowFirstMessage = dialogflowResponse.queryResult.responseMessages
+                .filter(m => m.text && m.text.text.length > 0)
+                .map(m => m.text.text.join('\n'))
+                .join('\n');
+
+            // Concatena a mensagem da IA com a primeira pergunta do fluxo
+            responseToSend = `${transitionMessage}\n\n${flowFirstMessage}`;
         }
 
         conversationHistory[sessionId].push({ role: "user", parts: [{ text: userInput }] });
