@@ -147,6 +147,7 @@ app.post('/', async (req, res) => {
             if (customPayload) {
                 console.log('Sinal de fim de fluxo detectado. Resetando estado para IA Generativa.');
                 delete conversationState[sessionId];
+                delete conversationHistory[sessionId];
             }
 
             const twimlResponse = detectIntentToTwilio(dialogflowResponse);
