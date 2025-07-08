@@ -87,6 +87,10 @@ app.post('/', async (req, res) => {
     const sessionId = req.body.From.replace('whatsapp:', '');
     console.log(`[${sessionId}] Mensagem recebida: "${userInput}"`);
 
+    if (!conversationHistory[sessionId]) {
+        conversationHistory[sessionId] = [];
+    }
+
     // INÍCIO DA NOVA LÓGICA DE ESTADO
     // Se o usuário está no meio de um fluxo, envie direto para o Dialogflow
     if (conversationState[sessionId] === 'IN_FLOW') {
