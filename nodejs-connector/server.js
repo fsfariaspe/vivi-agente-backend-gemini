@@ -60,11 +60,23 @@ const twilioToDetectIntent = (req) => {
     const sessionPath = dialogflowClient.projectLocationAgentSessionPath(
         process.env.PROJECT_ID, 'us-central1', process.env.AGENT_ID, sessionId
     );
+
     const request = {
         session: sessionPath,
         queryInput: {
             text: { text: req.body.Body },
             languageCode: process.env.LANGUAGE_CODE,
+        },
+        // ▼▼▼ GARANTINDO QUE O PARÂMETRO DE ORIGEM SEJA ENVIADO ▼▼▼
+        queryParams: {
+            parameters: {
+                fields: {
+                    source: {
+                        stringValue: 'WHATSAPP',
+                        kind: 'stringValue'
+                    }
+                }
+            }
         }
     };
     return request;
