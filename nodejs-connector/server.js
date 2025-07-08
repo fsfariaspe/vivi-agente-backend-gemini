@@ -53,34 +53,6 @@ Vivi: (RETORNA APENAS O JSON ABAIXO)
 \`\`\`
 `;
 
-// Função para chamar o Dialogflow com um evento e um parâmetro
-async function triggerDialogflowEvent(eventName, sessionId, produto) {
-    const sessionPath = dialogflowClient.projectLocationAgentSessionPath(
-        process.env.PROJECT_ID, 'us-central1', process.env.AGENT_ID, sessionId
-    );
-    const queryParams = {
-        parameters: {
-            fields: {
-                produto_escolhido: { stringValue: produto, kind: 'stringValue' }
-            }
-        }
-    };
-    const request = {
-        session: sessionPath,
-        queryInput: {
-            event: {
-                event: eventName,
-            },
-            // ▼▼▼ CORREÇÃO APLICADA AQUI ▼▼▼
-            languageCode: process.env.LANGUAGE_CODE
-        },
-        queryParams: queryParams
-    };
-    console.log(`Disparando evento: ${eventName} com produto: ${produto}`);
-    const [response] = await dialogflowClient.detectIntent(request);
-    return response;
-}
-
 // --- FUNÇÕES AUXILIARES (CORRIGIDAS E PRESENTES) ---
 
 const twilioToDetectIntent = (req) => {
@@ -111,42 +83,73 @@ const detectIntentToTwilio = (dialogflowResponse) => {
     return twiml;
 };
 
+// Função para chamar o Dialogflow com um evento e um parâmetro
+async function triggerDialogflowEvent(eventName, sessionId, produto) {
+    const sessionPath = dialogflowClient.projectLocationAgentSessionPath(
+        process.env.PROJECT_ID, 'us-central1', process.env.AGENT_ID, sessionId
+    );
+    const queryParams = {
+        parameters: {
+            fields: {
+                produto_escolhido: { stringValue: produto, kind: 'stringValue' }
+            }
+        }
+    };
+    const request = {
+        session: sessionPath,
+        queryInput: {
+            event: {
+                event: eventName,
+            },
+            // ▼▼▼ CORREÇÃO APLICADA AQUI ▼▼▼
+            languageCode: process.env.LANGUAGE_CODE
+        },
+        queryParams: queryParams
+    };
+    console.log(`Disparando evento: ${eventName} com produto: ${produto}`);
+    const [response] = await dialogflowClient.detectIntent(request);
+    return response;
+}
+
 // --- ROTA PRINCIPAL CORRIGIDA ---
+// --- ROTA PRINCIPAL COMPLETA E CORRIGIDA ---
 app.post('/', async (req, res) => {
     const userInput = req.body.Body;
     const sessionId = req.body.From.replace('whatsapp:', '');
-    console.log(`[${sessionId}] Mensagem recebida: "${userInput}"`);
 
     if (!conversationHistory[sessionId]) {
         conversationHistory[sessionId] = [];
     }
 
-    // INÍCIO DA NOVA LÓGICA DE ESTADO
-    // Se o usuário está no meio de um fluxo, envie direto para o Dialogflow
-    if (conversationState[sessionId] === 'IN_FLOW') {
-        console.log('Usuário está em um fluxo. Enviando para o Dialogflow...');
-        const dialogflowRequest = twilioToDetectIntent(req);
-        const [dialogflowResponse] = await dialogflowClient.detectIntent(dialogflowRequest);
+    try {
+        // VERIFICA SE O USUÁRIO JÁ ESTÁ EM UM FLUXO
+        if (conversationState[sessionId] === 'IN_FLOW') {
+            console.log('Usuário está em um fluxo. Enviando para o Dialogflow...');
+            const dialogflowRequest = twilioToDetectIntent(req);
+            const [dialogflowResponse] = await dialogflowClient.detectIntent(dialogflowRequest);
 
-        // Verifica se o fluxo terminou para resetar o estado
-        if (dialogflowResponse.queryResult.currentPage.displayName === 'End Flow') {
-            console.log('Fim do fluxo detectado. Resetando estado para IA Generativa.');
-            delete conversationState[sessionId];
+            const customPayload = dialogflowResponse.queryResult.responseMessages.find(
+                msg => msg.payload && msg.payload.flow_status === 'finished'
+            );
+
+            if (customPayload) {
+                console.log('Sinal de fim de fluxo detectado. Resetando estado para IA Generativa.');
+                delete conversationState[sessionId];
+            }
+
+            const twimlResponse = detectIntentToTwilio(dialogflowResponse);
+            res.type('text/xml').send(twimlResponse.toString());
+            return;
         }
 
-        const twimlResponse = detectIntentToTwilio(dialogflowResponse);
-        return res.type('text/xml').send(twimlResponse.toString());
-    }
-    // FIM DA NOVA LÓGICA DE ESTADO
-
-    // Se não, continua com a IA Generativa
-    try {
+        // SE NÃO ESTIVER EM FLUXO, USA A IA GENERATIVA
+        console.log('Iniciando conversa com o Gemini...');
         const chat = generativeModel.startChat({
-            history: conversationHistory[sessionId] || [],
+            history: conversationHistory[sessionId],
             systemInstruction: { role: 'system', parts: [{ text: mainPrompt }] }
         });
         const result = await chat.sendMessage(userInput);
-        const response = await result.response;
+        const response = result.response;
         const geminiResponseText = response.candidates[0].content.parts[0].text;
 
         let actionJson = null;
@@ -157,7 +160,7 @@ app.post('/', async (req, res) => {
             try {
                 actionJson = JSON.parse(jsonMatch[0]);
             } catch (e) {
-                console.error("Falha ao analisar o JSON extraído:", e);
+                console.error("Não foi possível analisar a resposta como JSON, tratando como texto normal.", e);
             }
         }
 
