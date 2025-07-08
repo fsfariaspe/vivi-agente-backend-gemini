@@ -5,5 +5,6 @@ steps:
       - -c
       # Comando inteiro em uma única linha para máxima robustez
       - 'gcloud run deploy ${_SERVICE_NAME} --source=./nodejs-connector --region=${_REGION} --platform=managed --allow-unauthenticated --set-env-vars="PROJECT_ID=${_PROJECT_ID},LOCATION=${_LOCATION},AGENT_ID=${_AGENT_ID},LANGUAGE_CODE=${_LANGUAGE_CODE},TWILIO_ACCOUNT_SID=${_TWILIO_ACCOUNT_SID},TWILIO_PHONE_NUMBER=${_TWILIO_PHONE_NUMBER}" --set-secrets="TWILIO_AUTH_TOKEN=twilio-auth-token:latest"'
+      - "--memory=512Mi"
 options:
   logging: CLOUD_LOGGING_ONLY
