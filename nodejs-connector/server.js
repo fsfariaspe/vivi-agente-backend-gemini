@@ -15,6 +15,8 @@ const dialogflowClient = new SessionsClient({ apiEndpoint: `us-central1-dialogfl
 const vertex_ai = new VertexAI({ project: process.env.PROJECT_ID, location: 'us-central1' });
 const generativeModel = vertex_ai.getGenerativeModel({ model: 'gemini-2.5-flash' });
 
+const conversationState = {}; // Objeto para guardar o estado de cada conversa
+
 const mainPrompt = `
 Você é a Vivi, uma assistente de viagens virtual da agência 'Viaje Fácil Brasil'. Sua personalidade é amigável, proativa e extremamente prestativa.
 Seu objetivo é conversar com o usuário para entender suas necessidades de viagem. Você pode dar sugestões, falar sobre pacotes promocionais e responder a perguntas gerais.
@@ -83,21 +85,33 @@ async function triggerDialogflowEvent(eventName, sessionId, produto) {
 app.post('/', async (req, res) => {
     const userInput = req.body.Body;
     const sessionId = req.body.From.replace('whatsapp:', '');
+    console.log(`[${sessionId}] Mensagem recebida: "${userInput}"`);
 
-    if (!conversationHistory[sessionId]) {
-        conversationHistory[sessionId] = [];
+    // INÍCIO DA NOVA LÓGICA DE ESTADO
+    // Se o usuário está no meio de um fluxo, envie direto para o Dialogflow
+    if (conversationState[sessionId] === 'IN_FLOW') {
+        console.log('Usuário está em um fluxo. Enviando para o Dialogflow...');
+        const dialogflowRequest = twilioToDetectIntent(req);
+        const [dialogflowResponse] = await dialogflowClient.detectIntent(dialogflowRequest);
+
+        // Verifica se o fluxo terminou para resetar o estado
+        if (dialogflowResponse.queryResult.currentPage.displayName === 'End Flow') {
+            console.log('Fim do fluxo detectado. Resetando estado para IA Generativa.');
+            delete conversationState[sessionId];
+        }
+
+        const twimlResponse = detectIntentToTwilio(dialogflowResponse);
+        return res.type('text/xml').send(twimlResponse.toString());
     }
+    // FIM DA NOVA LÓGICA DE ESTADO
 
+    // Se não, continua com a IA Generativa
     try {
-        const requestPayload = {
-            contents: [...conversationHistory[sessionId], { role: 'user', parts: [{ text: userInput }] }],
-            systemInstruction: {
-                role: 'system',
-                parts: [{ text: mainPrompt }]
-            },
-        };
-
-        const result = await generativeModel.generateContent(requestPayload);
+        const chat = generativeModel.startChat({
+            history: conversationHistory[sessionId] || [],
+            systemInstruction: { role: 'system', parts: [{ text: mainPrompt }] }
+        });
+        const result = await chat.sendMessage(userInput);
         const response = await result.response;
         const geminiResponseText = response.candidates[0].content.parts[0].text;
 
@@ -113,29 +127,20 @@ app.post('/', async (req, res) => {
             }
         }
 
-        if (actionJson && actionJson.action && actionJson.response) {
+        if (actionJson && actionJson.action) {
             console.log(`Ação detectada: ${actionJson.action}`);
+            responseToSend = actionJson.response;
 
-            // Mensagem de transição da IA
-            let transitionMessage = actionJson.response;
+            // ▼▼▼ ATIVA O MODO DE FLUXO ▼▼▼
+            conversationState[sessionId] = 'IN_FLOW';
+            console.log(`Estado para ${sessionId} alterado para IN_FLOW.`);
 
-            // Determina o produto para o parâmetro
-            let produto = actionJson.action === 'iniciar_cotacao_passagem' ? 'passagem' : 'cruzeiro';
+            const produto = actionJson.action.includes('passagem') ? 'passagem' : 'cruzeiro';
 
-            // ▼▼▼ CORREÇÃO APLICADA AQUI ▼▼▼
-            // Dispara o evento E ESPERA pela primeira resposta do Dialogflow
+            // Dispara o evento e envia a primeira mensagem do Dialogflow
             const dialogflowResponse = await triggerDialogflowEvent('iniciar_cotacao', sessionId, produto);
-
-            // Extrai a primeira mensagem do fluxo do Dialogflow
-            const flowFirstMessage = dialogflowResponse.queryResult.responseMessages
-                .filter(m => m.text)
-                .map(m => m.text.text.join('\n'))
-                .join('\n');
-
-            // Concatena a mensagem da IA com a primeira pergunta do fluxo
-            responseToSend = `${transitionMessage}\n\n${flowFirstMessage}`;
-
-            // O resto da lógica de envio permanece, mas não precisamos mais chamar o triggerDialogflowEvent no final
+            const flowFirstMessage = detectIntentToTwilio(dialogflowResponse).message().body;
+            responseToSend = `${responseToSend}\n\n${flowFirstMessage}`;
         }
 
         conversationHistory[sessionId].push({ role: "user", parts: [{ text: userInput }] });
@@ -151,8 +156,4 @@ app.post('/', async (req, res) => {
         errorTwiml.message('Desculpe, ocorreu um problema e não consigo responder agora.');
         res.status(500).type('text/xml').send(errorTwiml.toString());
     }
-});
-
-const listener = app.listen(process.env.PORT || 8080, () => {
-    console.log(`Seu servidor está a ouvir na porta ${listener.address().port}`);
 });
