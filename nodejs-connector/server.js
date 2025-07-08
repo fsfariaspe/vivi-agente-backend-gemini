@@ -11,10 +11,13 @@ const app = express();
 app.use(bodyParser.urlencoded({ extended: false }));
 app.use(bodyParser.json());
 
+// --- Clientes das APIs ---
 const dialogflowClient = new SessionsClient({ apiEndpoint: `us-central1-dialogflow.googleapis.com` });
 const vertex_ai = new VertexAI({ project: process.env.PROJECT_ID, location: 'us-central1' });
 const generativeModel = vertex_ai.getGenerativeModel({ model: 'gemini-2.5-flash' });
 
+// --- Armazenamento de Histórico e Estado da Conversa ---
+const conversationHistory = {};
 const conversationState = {}; // Objeto para guardar o estado de cada conversa
 
 const mainPrompt = `
@@ -50,9 +53,6 @@ Vivi: (RETORNA APENAS O JSON ABAIXO)
 \`\`\`
 `;
 
-// --- Armazenamento do Histórico da Conversa ---
-const conversationHistory = {};
-
 // Função para chamar o Dialogflow com um evento e um parâmetro
 async function triggerDialogflowEvent(eventName, sessionId, produto) {
     const sessionPath = dialogflowClient.projectLocationAgentSessionPath(
@@ -80,6 +80,36 @@ async function triggerDialogflowEvent(eventName, sessionId, produto) {
     const [response] = await dialogflowClient.detectIntent(request);
     return response;
 }
+
+// --- FUNÇÕES AUXILIARES (CORRIGIDAS E PRESENTES) ---
+
+const twilioToDetectIntent = (req) => {
+    const sessionId = req.body.From.replace('whatsapp:', '');
+    const sessionPath = dialogflowClient.projectLocationAgentSessionPath(
+        process.env.PROJECT_ID, 'us-central1', process.env.AGENT_ID, sessionId
+    );
+    const request = {
+        session: sessionPath,
+        queryInput: {
+            text: { text: req.body.Body },
+            languageCode: process.env.LANGUAGE_CODE,
+        }
+    };
+    return request;
+};
+
+const detectIntentToTwilio = (dialogflowResponse) => {
+    const replies = dialogflowResponse.queryResult.responseMessages
+        .filter(responseMessage => responseMessage.text)
+        .map(responseMessage => responseMessage.text.text.join('\n'))
+        .join('\n');
+
+    const twiml = new MessagingResponse();
+    if (replies) {
+        twiml.message(replies);
+    }
+    return twiml;
+};
 
 // --- ROTA PRINCIPAL CORRIGIDA ---
 app.post('/', async (req, res) => {
