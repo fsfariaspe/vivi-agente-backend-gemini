@@ -141,7 +141,7 @@ app.post('/', async (req, res) => {
             const [dialogflowResponse] = await dialogflowClient.detectIntent(dialogflowRequest);
 
             const customPayload = dialogflowResponse.queryResult.responseMessages.find(
-                msg => msg.payload && msg.payload.flow_status === 'finished'
+                msg => msg.payload && msg.payload.fields && msg.payload.fields.flow_status && msg.payload.fields.flow_status.stringValue === 'finished'
             );
 
             if (customPayload) {
