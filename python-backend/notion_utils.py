@@ -111,6 +111,12 @@ def create_notion_page(data: dict) -> tuple[Response, int]:
             "rich_text": [{"text": {"content": idade_senior}}]
         }
     
+    idade_crianca = data.get("idade_crianca")
+    if idade_crianca:
+        properties[NOTION_PROPERTY_MAP["idade_crianca"]] = {
+        "rich_text": [{"text": {"content": idade_crianca}}]
+        }
+    
     payload = {
         "parent": {"database_id": NOTION_DATABASE_ID},
         "properties": properties

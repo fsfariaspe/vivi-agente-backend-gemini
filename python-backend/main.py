@@ -85,7 +85,7 @@ def executar_logica_negocio(dados_dialogflow):
                 "idade_crianca": parametros.get('idade_crianca'),
                 "perfil_viagem": parametros.get('perfil_viagem'),
                 "preferencias": parametros.get('preferencias'),
-                "status": "Aguardando Pesquisa",
+                "status": "Teste",
                 "data_contato": data_contato_iso
             }
             create_notion_page(dados_notion) # Ação do Notion
@@ -125,7 +125,7 @@ def executar_logica_negocio(dados_dialogflow):
                 "preferencias": obs_adicionais,
                 "idade_crianca": parametros.get('idade_crianca', 'N/A'),
                 "idade_senior": parametros.get('idade_senior', 'N/A'),
-                "status": "Aguardando Pesquisa",
+                "status": "Teste",
                 "data_contato": data_contato_iso
             }
             create_notion_page(dados_notion) # Ação do Notion
