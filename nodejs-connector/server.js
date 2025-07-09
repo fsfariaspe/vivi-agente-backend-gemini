@@ -137,6 +137,7 @@ async function triggerDialogflowEvent(eventName, sessionId, produto, params = {}
     };
 
     console.log(`Disparando evento: ${eventName} com produto: ${produto} e com parâmetros:`, params);
+    console.log('DEBUG: Enviando os seguintes queryParams:', JSON.stringify(request.queryParams, null, 2));
     const [response] = await dialogflowClient.detectIntent(request);
     return response;
 }
@@ -157,6 +158,8 @@ app.post('/', async (req, res) => {
             console.log('Usuário está em um fluxo. Enviando para o Dialogflow...');
             const dialogflowRequest = twilioToDetectIntent(req);
             const [dialogflowResponse] = await dialogflowClient.detectIntent(dialogflowRequest);
+
+            console.log('DEBUG: Parâmetros atuais na sessão do Dialogflow:', JSON.stringify(dialogflowResponse.queryResult.parameters, null, 2));
 
             // ▼▼▼ LÓGICA ATUALIZADA PARA FIM DE FLUXO OU CANCELAMENTO ▼▼▼
             // Procura pelo nosso "sinal secreto" (Custom Payload) na resposta
