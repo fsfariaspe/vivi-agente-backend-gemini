@@ -28,13 +28,19 @@ Quando você identificar que o usuário está pronto para fazer uma cotação e 
 
 **Regras de Resposta:**
 1.  **Conversa Natural:** Converse normalmente com o usuário.
-2.  **Identificar a Hora de Coletar Dados:** Quando a conversa chegar a um ponto onde você precisa de detalhes para uma cotação, você DEVE parar de conversar e retornar um JSON especial.
-3.  **Formato do JSON de Ação:** O JSON deve ser a **ÚNICA COISA** na sua resposta. A estrutura deve ser:
+2.  **Identificar Hora de Cotar:** Quando o usuário pedir para cotar, você DEVE retornar o JSON de ação.
+3.  **Extrair Parâmetros:** Analise a frase do usuário e extraia qualquer informação que corresponda aos seguintes parâmetros: 
+    - Passagens Aéreas: person, origem, destino, data_ida, data_volta, passageiros, perfil_viagem, preferencias.
+    - Cruzeiros: person, destino_cruzeiro, porto_embarque, periodo_cruzeiro, adultos_cruzeiro, numero_criancas, idade_crianca, companhia_cruzeiro, acessibilidade_cruzeiro, status_tarifa_senior.
+4.  **Formato do JSON de Ação:** O JSON deve ser a **ÚNICA COISA** na sua resposta. A estrutura é:
     {
       "action": "NOME_DA_ACAO",
-      "response": "A frase que você dirá ao usuário para iniciar a coleta."
+      "response": "Sua frase de transição.",
+      "parameters": { // Campo opcional com os parâmetros extraídos
+        "nome_do_parametro": "valor_extraido"
+      }
     }
-4.  **Nomes de Ação Válidos:** "iniciar_cotacao_passagem", "iniciar_cotacao_cruzeiro".
+5.  **Nomes de Ação Válidos:** "iniciar_cotacao_passagem", "iniciar_cotacao_cruzeiro".
 
 **Exemplos de Interação:**
 
@@ -44,11 +50,18 @@ Vivi: Olá! Temos sim! 🎉 Temos um pacote incrível para a Patagônia em setem
 
 EXEMPLO 2 (Decidindo Iniciar o Fluxo):
 Usuário: Gostei da ideia do nordeste. Pode cotar para mim?
+
+EXEMPLO 3
+Usuário: queria cotar uma passagem pra Fortaleza em Dezembro
 Vivi: (RETORNA APENAS O JSON ABAIXO)
 \`\`\`json
 {
   "action": "iniciar_cotacao_passagem",
-  "response": "Com certeza! Para te passar os melhores valores para o nordeste, vou iniciar nosso assistente de cotação. É bem rapidinho!"
+  "response": "Com certeza! Fortaleza em Dezembro é uma ótima pedida! Para te ajudar, vou iniciar nosso assistente de cotação.",
+  "parameters": {
+    "destino": "Fortaleza",
+    "data_ida": "15/3/2025" 
+  }
 }
 \`\`\`
 `;
@@ -96,29 +109,34 @@ const detectIntentToTwilio = (dialogflowResponse) => {
 };
 
 // Função para chamar o Dialogflow com um evento e um parâmetro
-async function triggerDialogflowEvent(eventName, sessionId, produto) {
+async function triggerDialogflowEvent(eventName, sessionId, produto, params = {}) {
     const sessionPath = dialogflowClient.projectLocationAgentSessionPath(
         process.env.PROJECT_ID, 'us-central1', process.env.AGENT_ID, sessionId
     );
-    const queryParams = {
-        parameters: {
-            fields: {
-                produto_escolhido: { stringValue: produto, kind: 'stringValue' }
-            }
+
+    // ▼▼▼ CORREÇÃO APLICADA AQUI ▼▼▼
+    // Adiciona o produto aos outros parâmetros antes de construir o objeto final
+    params.produto_escolhido = produto;
+
+    const fields = {};
+    for (const key in params) {
+        if (params[key]) {
+            fields[key] = { stringValue: params[key], kind: 'stringValue' };
         }
-    };
+    }
+
+    const queryParams = { parameters: { fields } };
+
     const request = {
         session: sessionPath,
         queryInput: {
-            event: {
-                event: eventName,
-            },
-            // ▼▼▼ CORREÇÃO APLICADA AQUI ▼▼▼
+            event: { event: eventName },
             languageCode: process.env.LANGUAGE_CODE
         },
         queryParams: queryParams
     };
-    console.log(`Disparando evento: ${eventName} com produto: ${produto}`);
+
+    console.log(`Disparando evento: ${eventName} com produto: ${produto} e com parâmetros:`, params);
     const [response] = await dialogflowClient.detectIntent(request);
     return response;
 }
@@ -189,14 +207,15 @@ app.post('/', async (req, res) => {
             // Mensagem de transição da IA
             const transitionMessage = actionJson.response || "Ok, vamos começar!";
 
+            const produto = actionJson.action.includes('passagem') ? 'passagem' : 'cruzeiro';
+            const parameters = actionJson.parameters || {};
+
             // ▼▼▼ ATIVA O MODO DE FLUXO ▼▼▼
             conversationState[sessionId] = 'IN_FLOW';
             console.log(`Estado para ${sessionId} alterado para IN_FLOW.`);
 
-            const produto = actionJson.action.includes('passagem') ? 'passagem' : 'cruzeiro';
-
-            // Dispara o evento e espera pela primeira resposta do Dialogflow
-            const dialogflowResponse = await triggerDialogflowEvent('iniciar_cotacao', sessionId, produto);
+            // Dispara o evento, agora passando o 'produto' e os outros parâmetros
+            const dialogflowResponse = await triggerDialogflowEvent('iniciar_cotacao', sessionId, produto, parameters);
 
             // ▼▼▼ CORREÇÃO APLICADA AQUI ▼▼▼
             // Extrai corretamente a primeira mensagem do fluxo do Dialogflow
@@ -206,7 +225,7 @@ app.post('/', async (req, res) => {
                 .join('\n');
 
             // Concatena a mensagem da IA com a primeira pergunta do fluxo
-            responseToSend = `${transitionMessage}\n\n${flowFirstMessage}`;
+            responseToSend = `${transitionMessage}\n\n=====${flowFirstMessage}`;
         }
 
         conversationHistory[sessionId].push({ role: "user", parts: [{ text: userInput }] });
