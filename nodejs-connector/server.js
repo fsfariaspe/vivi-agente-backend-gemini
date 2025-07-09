@@ -225,7 +225,7 @@ app.post('/', async (req, res) => {
                 .join('\n');
 
             // Concatena a mensagem da IA com a primeira pergunta do fluxo
-            responseToSend = `${transitionMessage}\n\n=====${flowFirstMessage}`;
+            responseToSend = `${transitionMessage}\n\n=====\n\n${flowFirstMessage}`;
         }
 
         conversationHistory[sessionId].push({ role: "user", parts: [{ text: userInput }] });
