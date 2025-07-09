@@ -140,14 +140,20 @@ app.post('/', async (req, res) => {
             const dialogflowRequest = twilioToDetectIntent(req);
             const [dialogflowResponse] = await dialogflowClient.detectIntent(dialogflowRequest);
 
+            // ▼▼▼ LÓGICA ATUALIZADA PARA FIM DE FLUXO OU CANCELAMENTO ▼▼▼
+            // Procura pelo nosso "sinal secreto" (Custom Payload) na resposta
             const customPayload = dialogflowResponse.queryResult.responseMessages.find(
-                msg => msg.payload && msg.payload.fields && msg.payload.fields.flow_status && msg.payload.fields.flow_status.stringValue === 'finished'
+                msg => msg.payload && msg.payload.fields && msg.payload.fields.flow_status
             );
 
+            // Se o sinal for encontrado e for "finished" ou "cancelled_by_user", reseta o estado
             if (customPayload) {
-                console.log('Sinal de fim de fluxo detectado. Resetando estado para IA Generativa.');
-                delete conversationState[sessionId];
-                delete conversationHistory[sessionId];
+                const flowStatus = customPayload.payload.fields.flow_status.stringValue;
+                if (flowStatus === 'finished' || flowStatus === 'cancelled_by_user') {
+                    console.log(`Sinal de '${flowStatus}' detectado. Resetando estado para IA Generativa.`);
+                    delete conversationState[sessionId];
+                    delete conversationHistory[sessionId];
+                }
             }
 
             const twimlResponse = detectIntentToTwilio(dialogflowResponse);
