@@ -79,6 +79,7 @@ def executar_logica_negocio(dados_dialogflow):
                 "whatsapp_cliente": numero_cliente_final,
                 "tipo_viagem": "Passagem Aérea",
                 "origem_destino": f"{origem_texto} → {destino_texto}",
+                "periodo_desejado": parametros.get('periodo'),
                 "data_ida": data_ida_formatada,
                 "data_volta": data_volta_formatada,
                 "qtd_passageiros": f"{parametros.get('adultos_voo') or 0} adulto(s), {parametros.get('numero_criancas') or 0} criança(s)",
@@ -91,14 +92,27 @@ def executar_logica_negocio(dados_dialogflow):
             create_notion_page(dados_notion) # Ação do Notion
             
             template_sid = os.getenv("TEMPLATE_SID")
+            # 1. Comece com os valores que sempre estarão presentes.
             variaveis_template = {
                 '1': dados_notion.get('nome_cliente', 'N/A'),
                 '2': dados_notion.get('tipo_viagem', 'N/A'),
                 '3': dados_notion.get('origem_destino', 'N/A'),
-                '4': parametros.get('data_ida', 'N/A'),
-                '5': parametros.get('data_volta') or 'Só ida',
                 '6': dados_notion.get('qtd_passageiros', 'N/A')
             }
+
+            # 2. Use um if/else para adicionar as chaves que dependem da condição.
+            #    Lembre-se de corrigir a forma de acessar o parâmetro: parametros.get('data_ida')
+            if parametros.get('data_ida'):
+                variaveis_template['4'] = parametros.get('data_ida', 'N/A')
+                variaveis_template['5'] = parametros.get('data_volta') or 'Só ida'
+            else:
+                # Se não houver data_ida, assume-se que é um cruzeiro e adicionamos o período.
+                # OBS: O nome da chave aqui provavelmente deveria ser '4' ou '5' para seguir o padrão.
+                #      Vou usar '4' como exemplo.
+                variaveis_template['4'] = parametros.get('data_ida', 'N/A')
+                variaveis_template['5'] = parametros.get('periodo', 'N/A')
+            
+            
             client = Client(os.getenv("TWILIO_ACCOUNT_SID"), os.getenv("TWILIO_AUTH_TOKEN"))
             message = client.messages.create(
                 content_sid=template_sid, from_=os.getenv("TWILIO_WHATSAPP_FROM"),
