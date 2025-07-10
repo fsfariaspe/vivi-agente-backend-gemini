@@ -161,7 +161,7 @@ def webhook_principal():
     logger.info("--- CHAMADA WEBHOOK RECEBIDA ---")
     executar_logica_negocio(request_json)
 
-    texto_resposta = "Sua solicitação foi registrada com sucesso! Em instantes, um de nossos especialistas entrará em contato. Obrigado! 😊"
+    texto_resposta = "Atendimento encerrado"
 
     # ▼▼▼ CORREÇÃO APLICADA AQUI ▼▼▼
     # Adicionando o "sinal secreto" ao lado da mensagem de texto
