@@ -183,6 +183,10 @@ async function triggerDialogflowEvent(eventName, sessionId, produto, params = {}
         }
     }
 
+    // ▼▼▼ CORREÇÃO APLICADA AQUI ▼▼▼
+    // Adiciona o parâmetro 'source' junto com os outros parâmetros da IA
+    fields.source = { stringValue: 'WHATSAPP', kind: 'stringValue' };
+
     const queryParams = { parameters: { fields } };
 
     const request = {
