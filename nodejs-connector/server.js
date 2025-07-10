@@ -206,6 +206,7 @@ app.post('/', async (req, res) => {
 
         if (actionJson && actionJson.action) {
             console.log(`Ação detectada: ${actionJson.action}`);
+            console.log('DEBUG: Parâmetros extraídos pela IA:', JSON.stringify(actionJson.parameters, null, 2));
 
             // Mensagem de transição da IA
             const transitionMessage = actionJson.response || "Ok, vamos começar!";
