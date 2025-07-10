@@ -215,12 +215,15 @@ app.post('/', async (req, res) => {
             conversationState[sessionId] = 'IN_FLOW';
             console.log(`Estado para ${sessionId} alterado para IN_FLOW.`);
 
-            // ▼▼▼ CORREÇÃO APLICADA AQUI ▼▼▼
             // Dispara o evento E ESPERA pela primeira resposta do Dialogflow
             const dialogflowResponse = await triggerDialogflowEvent('iniciar_cotacao', sessionId, produto, parameters);
 
-            // Extrai a próxima pergunta do fluxo (que pode estar vazia se todas as etapas forem puladas)
-            const flowFirstMessage = detectIntentToTwilio(dialogflowResponse).message().body;
+            // ▼▼▼ CORREÇÃO APLICADA AQUI ▼▼▼
+            // Extrai corretamente a próxima pergunta do fluxo, se ela existir
+            const flowFirstMessage = (dialogflowResponse.queryResult.responseMessages || [])
+                .filter(m => m.text && m.text.text && m.text.text.length > 0)
+                .map(m => m.text.text.join('\n'))
+                .join('\n');
 
             // Monta a resposta final
             responseToSend = transitionMessage;
