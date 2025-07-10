@@ -44,26 +44,83 @@ Quando você identificar que o usuário está pronto para fazer uma cotação e 
 
 **Exemplos de Interação:**
 
-EXEMPLO 1 (Consulta Aberta):
-Usuário: Oi, tem alguma promoção de pacote de viagem?
-Vivi: Olá! Temos sim! 🎉 Temos um pacote incrível para a Patagônia em setembro, com tudo incluso. Também temos uma super promoção para resorts em família no nordeste. Você tem interesse em algum desses ou prefere outro tipo de viagem?
-
-EXEMPLO 2 (Decidindo Iniciar o Fluxo):
-Usuário: Gostei da ideia do nordeste. Pode cotar para mim?
-
-EXEMPLO 3
-Usuário: queria cotar uma passagem pra Fortaleza em Dezembro
+EXEMPLO 1 (Passagem Simples):
+Usuário: queria cotar uma passagem pra Fortaleza
 Vivi: (RETORNA APENAS O JSON ABAIXO)
 \`\`\`json
 {
   "action": "iniciar_cotacao_passagem",
-  "response": "Com certeza! Fortaleza em Dezembro é uma ótima pedida! Para te ajudar, vou iniciar nosso assistente de cotação.",
+  "response": "Com certeza! Fortaleza é um destino maravilhoso! Para te ajudar a encontrar as melhores passagens, vou iniciar nosso assistente de cotação. É bem rapidinho!",
   "parameters": {
-    "destino": "Fortaleza",
-    "data_ida": "15/3/2025" 
+    "destino": "Fortaleza"
   }
 }
 \`\`\`
+
+EXEMPLO 2 (Passagem com Nome e Data):
+Usuário: Oi, meu nome é Eduardo e eu queria ver o preço de um voo para o Rio de Janeiro saindo dia 10 de maio.
+Vivi: (RETORNA APENAS O JSON ABAIXO)
+\`\`\`json
+{
+  "action": "iniciar_cotacao_passagem",
+  "response": "Olá, Eduardo! Claro, vamos cotar sua passagem para o Rio. Vou iniciar nosso assistente para coletar os últimos detalhes.",
+  "parameters": {
+    "person": "Eduardo",
+    "destino": "Rio de Janeiro",
+    "data_ida": "10/05/2025"
+  }
+}
+\`\`\`
+
+EXEMPLO 3 (Passagem com Nome e Período):
+Usuário: Oi, meu nome é Eduardo e eu queria ver o preço de um voo para o Rio de Janeiro saindo no melhor valor em maio.
+Vivi: (RETORNA APENAS O JSON ABAIXO)
+\`\`\`json
+{
+  "action": "iniciar_cotacao_passagem",
+  "response": "Olá, Eduardo! Claro, vamos cotar sua passagem para o Rio. Vou iniciar nosso assistente para coletar os últimos detalhes.",
+  "parameters": {
+    "person": "Eduardo",
+    "destino": "Rio de Janeiro",
+    "periodo": "melhor valor em maio"
+  }
+}
+\`\`\`
+
+EXEMPLO 4 (Cruzeiro com Detalhes):
+Usuário: Queria saber o preço de um cruzeiro pela costa brasileira para 2 adultos, saindo de Santos.
+Vivi: (RETORNA APENAS O JSON ABAIXO)
+\`\`\`json
+{
+  "action": "iniciar_cotacao_cruzeiro",
+  "response": "Ótima ideia! Um cruzeiro pela nossa costa é incrível. Vou iniciar o assistente para montarmos a viagem perfeita para vocês!",
+  "parameters": {
+    "destino_cruzeiro": "Costa Brasileira",
+    "adultos_cruzeiro": "2",
+    "porto_embarque": "Santos"
+  }
+}
+\`\`\`
+
+EXEMPLO 5 (Cruzeiro com Detalhes e Período):
+Usuário: Queria saber o preço de um cruzeiro pela costa brasileira para 2 adultos, saindo de Santos em fevereiro do próximo ano.
+Vivi: (RETORNA APENAS O JSON ABAIXO)
+\`\`\`json
+{
+  "action": "iniciar_cotacao_cruzeiro",
+  "response": "Ótima ideia! Um cruzeiro pela nossa costa é incrível. Vou iniciar o assistente para montarmos a viagem perfeita para vocês!",
+  "parameters": {
+    "destino_cruzeiro": "Costa Brasileira",
+    "adultos_cruzeiro": "2",
+    "porto_embarque": "Santos",
+    "periodo": "fevereiro do próximo ano"
+  }
+}
+\`\`\`
+
+EXEMPLO 6 (Consulta Aberta):
+Usuário: Oi, tem alguma promoção de pacote de viagem?
+Vivi: Olá! Temos sim! 🎉 Temos um pacote incrível para a Patagônia em setembro, com tudo incluso. Também temos uma super promoção para resorts em família no nordeste. Você tem interesse em algum desses ou prefere outro tipo de viagem?
 `;
 
 // --- FUNÇÕES AUXILIARES (CORRIGIDAS E PRESENTES) ---
@@ -206,31 +263,38 @@ app.post('/', async (req, res) => {
 
         if (actionJson && actionJson.action) {
             console.log(`Ação detectada: ${actionJson.action}`);
+            console.log('DEBUG: Parâmetros extraídos pela IA:', JSON.stringify(actionJson.parameters, null, 2));
 
             const transitionMessage = actionJson.response || "Ok, vamos começar!";
             const parameters = actionJson.parameters || {};
             const produto = actionJson.action.includes('passagem') ? 'passagem' : 'cruzeiro';
 
-            // Anota na "memória" que o usuário agora está em um fluxo
             conversationState[sessionId] = 'IN_FLOW';
             console.log(`Estado para ${sessionId} alterado para IN_FLOW.`);
 
-            // Dispara o evento E ESPERA pela primeira resposta do Dialogflow
             const dialogflowResponse = await triggerDialogflowEvent('iniciar_cotacao', sessionId, produto, parameters);
 
-            // ▼▼▼ CORREÇÃO APLICADA AQUI ▼▼▼
-            // Extrai corretamente a próxima pergunta do fluxo, se ela existir
             const flowFirstMessage = (dialogflowResponse.queryResult.responseMessages || [])
                 .filter(m => m.text && m.text.text && m.text.text.length > 0)
                 .map(m => m.text.text.join('\n'))
                 .join('\n');
 
-            // Monta a resposta final
-            responseToSend = transitionMessage;
+            // ▼▼▼ CORREÇÃO APLICADA AQUI ▼▼▼
+            // Cria um TwiML com duas mensagens separadas
+            const twiml = new MessagingResponse();
+            twiml.message(transitionMessage); // Mensagem 1: A transição da IA
+
             if (flowFirstMessage) {
-                // Adiciona a pergunta do fluxo apenas se ela existir
-                responseToSend += `\n\n${flowFirstMessage}`;
+                twiml.message(flowFirstMessage); // Mensagem 2: A primeira pergunta do fluxo
             }
+
+            // Envia a resposta TwiML para o Twilio
+            res.type('text/xml').send(twiml.toString());
+
+            // Adiciona a interação ao histórico e encerra a função
+            conversationHistory[sessionId].push({ role: "user", parts: [{ text: userInput }] });
+            conversationHistory[sessionId].push({ role: "model", parts: [{ text: transitionMessage }] });
+            return; // Encerra aqui, pois a resposta já foi enviada
         }
 
         conversationHistory[sessionId].push({ role: "user", parts: [{ text: userInput }] });
