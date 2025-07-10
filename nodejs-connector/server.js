@@ -215,12 +215,19 @@ app.post('/', async (req, res) => {
             conversationState[sessionId] = 'IN_FLOW';
             console.log(`Estado para ${sessionId} alterado para IN_FLOW.`);
 
-            // Dispara o evento e passa TODOS os parâmetros que a IA extraiu
-            triggerDialogflowEvent('iniciar_cotacao', sessionId, produto, parameters)
-                .catch(err => console.error("Erro ao disparar evento no Dialogflow:", err));
+            // ▼▼▼ CORREÇÃO APLICADA AQUI ▼▼▼
+            // Dispara o evento E ESPERA pela primeira resposta do Dialogflow
+            const dialogflowResponse = await triggerDialogflowEvent('iniciar_cotacao', sessionId, produto, parameters);
 
-            // Envia APENAS a mensagem de transição da IA para o usuário
+            // Extrai a próxima pergunta do fluxo (que pode estar vazia se todas as etapas forem puladas)
+            const flowFirstMessage = detectIntentToTwilio(dialogflowResponse).message().body;
+
+            // Monta a resposta final
             responseToSend = transitionMessage;
+            if (flowFirstMessage) {
+                // Adiciona a pergunta do fluxo apenas se ela existir
+                responseToSend += `\n\n${flowFirstMessage}`;
+            }
         }
 
         conversationHistory[sessionId].push({ role: "user", parts: [{ text: userInput }] });
