@@ -206,30 +206,21 @@ app.post('/', async (req, res) => {
 
         if (actionJson && actionJson.action) {
             console.log(`Ação detectada: ${actionJson.action}`);
-            console.log('DEBUG: Parâmetros extraídos pela IA:', JSON.stringify(actionJson.parameters, null, 2));
 
-            // Mensagem de transição da IA
             const transitionMessage = actionJson.response || "Ok, vamos começar!";
-
-            const produto = actionJson.action.includes('passagem') ? 'passagem' : 'cruzeiro';
             const parameters = actionJson.parameters || {};
+            const produto = actionJson.action.includes('passagem') ? 'passagem' : 'cruzeiro';
 
-            // ▼▼▼ ATIVA O MODO DE FLUXO ▼▼▼
+            // Anota na "memória" que o usuário agora está em um fluxo
             conversationState[sessionId] = 'IN_FLOW';
             console.log(`Estado para ${sessionId} alterado para IN_FLOW.`);
 
-            // Dispara o evento, agora passando o 'produto' e os outros parâmetros
-            const dialogflowResponse = await triggerDialogflowEvent('iniciar_cotacao', sessionId, produto, parameters);
+            // Dispara o evento e passa TODOS os parâmetros que a IA extraiu
+            triggerDialogflowEvent('iniciar_cotacao', sessionId, produto, parameters)
+                .catch(err => console.error("Erro ao disparar evento no Dialogflow:", err));
 
-            // ▼▼▼ CORREÇÃO APLICADA AQUI ▼▼▼
-            // Extrai corretamente a primeira mensagem do fluxo do Dialogflow
-            const flowFirstMessage = dialogflowResponse.queryResult.responseMessages
-                .filter(m => m.text && m.text.text.length > 0)
-                .map(m => m.text.text.join('\n'))
-                .join('\n');
-
-            // Concatena a mensagem da IA com a primeira pergunta do fluxo
-            responseToSend = `${transitionMessage}\n\n=====\n\n${flowFirstMessage}`;
+            // Envia APENAS a mensagem de transição da IA para o usuário
+            responseToSend = transitionMessage;
         }
 
         conversationHistory[sessionId].push({ role: "user", parts: [{ text: userInput }] });
