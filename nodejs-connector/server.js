@@ -215,6 +215,24 @@ app.post('/', async (req, res) => {
     }
 
     try {
+        // Se o usuário está em um fluxo, a IA generativa ainda é consultada primeiro
+        if (isGenericQuestion(userInput)) {
+            console.log('Pergunta genérica detectada no meio do fluxo. Acionando IA...');
+            const chat = generativeModel.startChat({ history: conversationHistory[sessionId] });
+            const result = await chat.sendMessage(userInput);
+            const response = await result.response;
+            const geminiText = response.candidates[0].content.parts[0].text;
+
+            // Envia a resposta da IA, mas NÃO avança o fluxo do Dialogflow
+            const twiml = new MessagingResponse();
+            twiml.message(geminiText);
+            // Opcional: Adicionar uma mensagem para re-solicitar a informação do fluxo
+            // twiml.message("Voltando à sua cotação, qual era a informação que você ia me passar?");
+
+            res.type('text/xml').send(twiml.toString());
+            return;
+        }
+
         // VERIFICA SE O USUÁRIO JÁ ESTÁ EM UM FLUXO
         if (conversationState[sessionId] === 'IN_FLOW') {
             console.log('Usuário está em um fluxo. Enviando para o Dialogflow...');
