@@ -19,6 +19,7 @@ const generativeModel = vertex_ai.getGenerativeModel({ model: 'gemini-2.5-flash'
 // --- Armazenamento de Histórico e Estado da Conversa ---
 const conversationHistory = {};
 const conversationState = {}; // Objeto para guardar o estado de cada conversa
+const flowContext = {}; // Guarda o contexto do fluxo pausado
 
 const mainPrompt = `
 Você é a Vivi, uma assistente de viagens virtual da agência 'Viaje Fácil Brasil'. Sua personalidade é amigável, proativa e extremamente prestativa.
@@ -229,122 +230,96 @@ async function triggerDialogflowEvent(eventName, sessionId, produto, params = {}
     return response;
 }
 
-// --- ROTA PRINCIPAL CORRIGIDA ---
-// --- ROTA PRINCIPAL COMPLETA E CORRIGIDA ---
+// --- ROTA PRINCIPAL ---
 app.post('/', async (req, res) => {
     const userInput = req.body.Body;
-    const sessionId = req.body.From.replace('whatsapp:', '');
+    const sessionId = req.body.From;
 
+    // Inicializa o estado se for a primeira vez
+    if (!conversationState[sessionId]) {
+        conversationState[sessionId] = 'ia';
+    }
     if (!conversationHistory[sessionId]) {
         conversationHistory[sessionId] = [];
     }
 
     try {
-        // --- LÓGICA HÍBRIDA CORRIGIDA ---
+        let responseToSend = "";
 
-        // Passo 1: O usuário fez uma pergunta genérica?
-        if (isGenericQuestion(userInput)) {
-            console.log('Pergunta genérica detectada. Acionando IA Generativa...');
+        // Lógica para quando a conversa está PAUSADA
+        if (conversationState[sessionId] === 'paused') {
+            if (userInput.toLowerCase().trim() === 'sim') {
+                console.log('Usuário confirmou o retorno ao fluxo.');
+                conversationState[sessionId] = 'in_flow';
 
-            // ▼▼▼ CORREÇÃO APLICADA AQUI ▼▼▼
-            // Para perguntas no meio do fluxo, enviamos apenas a pergunta atual, sem o histórico,
-            // para evitar confusão da IA.
-            const requestPayload = {
-                contents: [{ role: 'user', parts: [{ text: userInput }] }]
-            };
-
-            const result = await generativeModel.generateContent(requestPayload);
-            const response = result.response;
-            const geminiText = response.candidates[0].content.parts[0].text;
-
-            let responseToSend = geminiText;
-
-            if (conversationState[sessionId] === 'IN_FLOW') {
-                responseToSend += "\n\n(Voltando à sua cotação, qual era a informação que você ia me passar?)";
+                // Repete a última pergunta do Dialogflow
+                responseToSend = flowContext[sessionId].lastBotQuestion;
+            } else {
+                // Se o usuário não quer voltar, a IA responde e o estado continua pausado
+                const chat = generativeModel.startChat({ history: conversationHistory[sessionId] });
+                const result = await chat.sendMessage(userInput);
+                responseToSend = (await result.response).text();
+                responseToSend += "\n\nQuando quiser, me diga 'sim' para continuarmos a cotação.";
             }
 
-            const twiml = new MessagingResponse();
-            twiml.message(responseToSend);
-            return res.type('text/xml').send(twiml.toString());
-        }
-
-        // Passo 2: Se não é uma pergunta, vamos ver se estamos em um fluxo
-        if (conversationState[sessionId] === 'IN_FLOW') {
-            console.log('Não é pergunta genérica. Enviando para o Dialogflow continuar o fluxo...');
+            // Lógica para quando a conversa está DENTRO DE UM FLUXO
+        } else if (conversationState[sessionId] === 'in_flow') {
+            console.log('Enviando para o Dialogflow...');
             const dialogflowRequest = twilioToDetectIntent(req);
             const [dialogflowResponse] = await dialogflowClient.detectIntent(dialogflowRequest);
 
-            const customPayload = dialogflowResponse.queryResult.responseMessages.find(
-                msg => msg.payload && msg.payload.fields && msg.payload.fields.flow_status
-            );
+            if (dialogflowResponse.queryResult.match.matchType === 'NO_MATCH') {
+                console.log('Dialogflow não entendeu. Acionando IA Generativa...');
+                conversationState[sessionId] = 'paused'; // PAUSA o fluxo
 
-            if (customPayload) {
-                const flowStatus = customPayload.payload.fields.flow_status.stringValue;
-                if (flowStatus === 'finished' || flowStatus === 'cancelled_by_user') {
-                    console.log(`Sinal de '${flowStatus}' detectado. Resetando estado e histórico.`);
+                const chat = generativeModel.startChat({ history: conversationHistory[sessionId] });
+                const result = await chat.sendMessage(userInput);
+                responseToSend = (await result.response).text();
+
+                // Guarda a última pergunta do bot para poder retomá-la
+                flowContext[sessionId] = { lastBotQuestion: "Desculpe, não entendi. Pode repetir, por favor?" };
+
+                responseToSend += "\n\nEntendido. Podemos voltar para a cotação agora? (responda 'sim' para continuar)";
+
+            } else {
+                const twimlResponse = detectIntentToTwilio(dialogflowResponse);
+                responseToSend = twimlResponse.message().body;
+                flowContext[sessionId] = { lastBotQuestion: responseToSend }; // Guarda a pergunta atual
+
+                const customPayload = dialogflowResponse.queryResult.responseMessages.find(m => m.payload?.fields?.flow_status);
+                if (customPayload) {
                     delete conversationState[sessionId];
                     delete conversationHistory[sessionId];
+                    delete flowContext[sessionId];
+                    console.log('Fim do fluxo detectado. Estado e histórico resetados.');
                 }
             }
 
-            const twimlResponse = detectIntentToTwilio(dialogflowResponse);
-            return res.type('text/xml').send(twimlResponse.toString());
-        }
+            // Lógica para quando a conversa está com a IA
+        } else {
+            console.log('Conversa aberta com a IA para decisão de fluxo...');
+            const chat = generativeModel.startChat({ history: conversationHistory[sessionId], systemInstruction: { role: 'system', parts: [{ text: mainPrompt }] } });
+            const result = await chat.sendMessage(userInput);
+            const geminiResponseText = (await result.response).text();
 
-        // Passo 3: Se não está em fluxo e não é pergunta, a IA decide o que fazer
-        console.log('Conversa aberta com a IA para decisão de fluxo...');
-        const chat = generativeModel.startChat({
-            history: conversationHistory[sessionId],
-            systemInstruction: { role: 'system', parts: [{ text: mainPrompt }] }
-        });
-        const result = await chat.sendMessage(userInput);
-        const response = result.response;
-        const geminiResponseText = response.candidates[0].content.parts[0].text;
-
-        let actionJson = null;
-        let responseToSend = geminiResponseText;
-
-        const jsonMatch = geminiResponseText.match(/\{[\s\S]*\}/);
-        if (jsonMatch && jsonMatch[0]) {
+            let actionJson = null;
             try {
-                actionJson = JSON.parse(jsonMatch[0]);
-            } catch (e) { console.error("Falha ao analisar JSON:", e); }
-        }
+                const jsonMatch = geminiResponseText.match(/\{[\s\S]*\}/);
+                if (jsonMatch) actionJson = JSON.parse(jsonMatch[0]);
+            } catch (e) { }
 
-        if (actionJson && actionJson.action) {
-            console.log(`Ação detectada: ${actionJson.action}`);
-            console.log('DEBUG: Parâmetros extraídos pela IA:', JSON.stringify(actionJson.parameters, null, 2));
+            if (actionJson && actionJson.action) {
+                console.log(`Ação detectada: ${actionJson.action}`);
+                conversationState[sessionId] = 'in_flow';
 
-            const transitionMessage = actionJson.response || "Ok, vamos começar!";
-            const parameters = actionJson.parameters || {};
-            const produto = actionJson.action.includes('passagem') ? 'passagem' : 'cruzeiro';
+                const dialogflowRequest = twilioToDetectIntent(req);
+                const [dialogflowResponse] = await dialogflowClient.detectIntent(dialogflowRequest);
 
-            conversationState[sessionId] = 'IN_FLOW';
-            console.log(`Estado para ${sessionId} alterado para IN_FLOW.`);
-
-            const dialogflowResponse = await triggerDialogflowEvent('iniciar_cotacao', sessionId, produto, parameters);
-
-            const flowFirstMessage = (dialogflowResponse.queryResult.responseMessages || [])
-                .filter(m => m.text && m.text.text && m.text.text.length > 0)
-                .map(m => m.text.text.join('\n'))
-                .join('\n');
-
-            // ▼▼▼ CORREÇÃO APLICADA AQUI ▼▼▼
-            // Cria um TwiML com duas mensagens separadas
-            const twiml = new MessagingResponse();
-            twiml.message(transitionMessage); // Mensagem 1: A transição da IA
-
-            if (flowFirstMessage) {
-                twiml.message(flowFirstMessage); // Mensagem 2: A primeira pergunta do fluxo
+                responseToSend = actionJson.response + '\n\n' + detectIntentToTwilio(dialogflowResponse).message().body;
+                flowContext[sessionId] = { lastBotQuestion: detectIntentToTwilio(dialogflowResponse).message().body };
+            } else {
+                responseToSend = geminiResponseText;
             }
-
-            // Envia a resposta TwiML para o Twilio
-            res.type('text/xml').send(twiml.toString());
-
-            // Adiciona a interação ao histórico e encerra a função
-            conversationHistory[sessionId].push({ role: "user", parts: [{ text: userInput }] });
-            conversationHistory[sessionId].push({ role: "model", parts: [{ text: transitionMessage }] });
-            return; // Encerra aqui, pois a resposta já foi enviada
         }
 
         conversationHistory[sessionId].push({ role: "user", parts: [{ text: userInput }] });
