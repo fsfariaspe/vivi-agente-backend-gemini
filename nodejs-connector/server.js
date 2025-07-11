@@ -240,22 +240,26 @@ app.post('/', async (req, res) => {
     }
 
     try {
-        // Se o usuário está em um fluxo, a IA generativa ainda é consultada primeiro
+        // --- NOVA LÓGICA HÍBRIDA ---
+        // Passo 1: O usuário fez uma pergunta genérica?
         if (isGenericQuestion(userInput)) {
-            console.log('Pergunta genérica detectada no meio do fluxo. Acionando IA...');
-            const chat = generativeModel.startChat({ history: conversationHistory[sessionId] });
+            console.log('Pergunta genérica detectada. Acionando IA Generativa...');
+
+            // Adiciona a pergunta atual ao histórico para dar contexto à IA
+            const currentHistory = conversationHistory[sessionId] || [];
+            const chat = generativeModel.startChat({ history: currentHistory });
             const result = await chat.sendMessage(userInput);
-            const response = await result.response;
+            const response = result.response;
             const geminiText = response.candidates[0].content.parts[0].text;
 
-            // Envia a resposta da IA, mas NÃO avança o fluxo do Dialogflow
+            // Envia a resposta da IA. O estado do fluxo no Dialogflow não muda.
             const twiml = new MessagingResponse();
             twiml.message(geminiText);
-            // Opcional: Adicionar uma mensagem para re-solicitar a informação do fluxo
-            // twiml.message("Voltando à sua cotação, qual era a informação que você ia me passar?");
 
-            res.type('text/xml').send(twiml.toString());
-            return;
+            // IMPORTANTE: Adicionar uma mensagem para guiar o usuário de volta
+            twiml.message("Voltando à sua cotação, qual era a informação que você ia me passar?");
+
+            return res.type('text/xml').send(twiml.toString());
         }
 
         // VERIFICA SE O USUÁRIO JÁ ESTÁ EM UM FLUXO
