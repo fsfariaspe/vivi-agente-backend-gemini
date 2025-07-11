@@ -124,6 +124,31 @@ Usuário: Oi, tem alguma promoção de pacote de viagem?
 Vivi: Olá! Temos sim! 🎉 Temos um pacote incrível para a Patagônia em setembro, com tudo incluso. Também temos uma super promoção para resorts em família no nordeste. Você tem interesse em algum desses ou prefere outro tipo de viagem?
 `;
 
+// ▼▼▼ ADICIONE ESTA FUNÇÃO ▼▼▼
+function isGenericQuestion(text) {
+    const questionWords = ['quem', 'qual', 'quais', 'onde', 'quando', 'como', 'por que', 'porque', 'o que', 'me diga', 'me conte', 'queria saber', 'poderia me dizer', 'você sabe', 'você pode me contar', 'gostaria de saber', 'você conhece', 'você tem informações sobre', 'veja', 'olha', 'escuta', 'escute', 'me fale', 'me fale sobre'];
+    if (!text) return false;
+    const lowerCaseText = text.toLowerCase().trim();
+
+    // Se terminar com '?', é uma pergunta.
+    if (lowerCaseText.endsWith('?')) {
+        return true;
+    }
+
+    const words = lowerCaseText.split(' ');
+    // Se a primeira palavra for de pergunta, é uma pergunta.
+    if (questionWords.includes(words[0])) {
+        return true;
+    }
+
+    // Se a segunda palavra for de pergunta (para casos como "e quem...", "mas qual..."), é uma pergunta.
+    if (words.length > 1 && questionWords.includes(words[1])) {
+        return true;
+    }
+
+    return false;
+}
+
 // --- FUNÇÕES AUXILIARES (CORRIGIDAS E PRESENTES) ---
 
 const twilioToDetectIntent = (req) => {
