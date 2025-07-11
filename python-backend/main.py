@@ -90,33 +90,39 @@ def executar_logica_negocio(dados_dialogflow):
                 "data_contato": data_contato_iso
             }
             create_notion_page(dados_notion) # Ação do Notion
-            
-            template_sid = os.getenv("TEMPLATE_SID")
-            # 1. Comece com os valores que sempre estarão presentes.
-            variaveis_template = {
-                '1': dados_notion.get('nome_cliente', 'N/A'),
-                '2': dados_notion.get('tipo_viagem', 'N/A'),
-                '3': dados_notion.get('origem_destino', 'N/A'),
-                '6': dados_notion.get('qtd_passageiros', 'N/A')
-            }
 
-            # 2. Use um if/else para adicionar as chaves que dependem da condição.
-            #    Lembre-se de corrigir a forma de acessar o parâmetro: parametros.get('data_ida')
-            if parametros.get('data_ida'):
-                variaveis_template['4'] = parametros.get('data_ida', 'N/A')
-                variaveis_template['5'] = parametros.get('data_volta') or 'Só ida'
-            else:
-                # Se não houver data_ida, assume-se que é um cruzeiro e adicionamos o período.
-                # OBS: O nome da chave aqui provavelmente deveria ser '4' ou '5' para seguir o padrão.
-                #      Vou usar '4' como exemplo.
-                variaveis_template['4'] = parametros.get('data_ida', 'N/A')
-                variaveis_template['5'] = parametros.get('periodo', 'N/A')
-            
-            
+            # --- LÓGICA CONDICIONAL PARA O TEMPLATE ---
             client = Client(os.getenv("TWILIO_ACCOUNT_SID"), os.getenv("TWILIO_AUTH_TOKEN"))
+
+            # Verifica se existe data_ida para decidir qual template usar
+            if dados_notion.get('data_ida'):
+                template_sid = os.getenv("TEMPLATE_SID") # SID para template com datas
+                variaveis_template = {
+                    '1': dados_notion.get('nome_cliente', 'N/A'),
+                    '2': dados_notion.get('tipo_viagem', 'N/A'),
+                    '3': dados_notion.get('origem_destino', 'N/A'),
+                    '4': parametros.get('data_ida', 'N/A'),
+                    '5': parametros.get('data_volta') or 'Só ida',
+                    '6': dados_notion.get('qtd_passageiros', 'N/A')
+                }
+            else:
+                # Se não tem data_ida, usa o template novo para período
+                template_sid = os.getenv("TEMPLATE_SID_VOO_COM_PERIODO") # << SEU NOVO TEMPLATE SID
+                variaveis_template = {
+                    '1': dados_notion.get('nome_cliente', 'N/A'),
+                    '2': dados_notion.get('tipo_viagem', 'N/A'),
+                    '3': dados_notion.get('origem_destino', 'N/A'),
+                    '4': dados_notion.get('periodo_desejado', 'N/A'), # << VARIÁVEL DO PERÍODO
+                    '5': dados_notion.get('qtd_passageiros', 'N/A')
+                    # Adapte os números e variáveis conforme seu novo template
+                }
+
+            # Dispara a mensagem com o template e variáveis corretos
             message = client.messages.create(
-                content_sid=template_sid, from_=os.getenv("TWILIO_WHATSAPP_FROM"),
-                to=os.getenv("MEU_WHATSAPP_TO"), content_variables=json.dumps(variaveis_template)
+                content_sid=template_sid, 
+                from_=os.getenv("TWILIO_WHATSAPP_FROM"),
+                to=os.getenv("MEU_WHATSAPP_TO"), 
+                content_variables=json.dumps(variaveis_template)
             )
             logger.info(f"✅ Alerta de VOO enviado! SID: {message.sid}")
 

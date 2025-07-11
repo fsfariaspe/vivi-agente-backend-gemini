@@ -246,16 +246,21 @@ app.post('/', async (req, res) => {
         if (isGenericQuestion(userInput)) {
             console.log('Pergunta genérica detectada. Acionando IA Generativa...');
 
-            const chat = generativeModel.startChat({ history: conversationHistory[sessionId] });
-            const result = await chat.sendMessage(userInput);
+            // ▼▼▼ CORREÇÃO APLICADA AQUI ▼▼▼
+            // Para perguntas no meio do fluxo, enviamos apenas a pergunta atual, sem o histórico,
+            // para evitar confusão da IA.
+            const requestPayload = {
+                contents: [{ role: 'user', parts: [{ text: userInput }] }]
+            };
+
+            const result = await generativeModel.generateContent(requestPayload);
             const response = result.response;
             const geminiText = response.candidates[0].content.parts[0].text;
 
             let responseToSend = geminiText;
 
-            // Se o usuário estiver no meio de um fluxo, adiciona uma mensagem para guiá-lo de volta
             if (conversationState[sessionId] === 'IN_FLOW') {
-                responseToSend += "\n\nVoltando à sua cotação, qual era a informação que você ia me passar?";
+                responseToSend += "\n\n(Voltando à sua cotação, qual era a informação que você ia me passar?)";
             }
 
             const twiml = new MessagingResponse();
