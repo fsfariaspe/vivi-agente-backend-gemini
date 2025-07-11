@@ -240,59 +240,54 @@ app.post('/', async (req, res) => {
     }
 
     try {
-        // --- NOVA LÓGICA HÍBRIDA ---
+        // --- LÓGICA HÍBRIDA CORRIGIDA ---
+
         // Passo 1: O usuário fez uma pergunta genérica?
         if (isGenericQuestion(userInput)) {
             console.log('Pergunta genérica detectada. Acionando IA Generativa...');
 
-            // Adiciona a pergunta atual ao histórico para dar contexto à IA
-            const currentHistory = conversationHistory[sessionId] || [];
-            const chat = generativeModel.startChat({ history: currentHistory });
+            const chat = generativeModel.startChat({ history: conversationHistory[sessionId] });
             const result = await chat.sendMessage(userInput);
             const response = result.response;
             const geminiText = response.candidates[0].content.parts[0].text;
 
-            // Envia a resposta da IA. O estado do fluxo no Dialogflow não muda.
+            let responseToSend = geminiText;
+
+            // Se o usuário estiver no meio de um fluxo, adiciona uma mensagem para guiá-lo de volta
+            if (conversationState[sessionId] === 'IN_FLOW') {
+                responseToSend += "\n\nVoltando à sua cotação, qual era a informação que você ia me passar?";
+            }
+
             const twiml = new MessagingResponse();
-            twiml.message(geminiText);
-
-            // IMPORTANTE: Adicionar uma mensagem para guiar o usuário de volta
-            twiml.message("Voltando à sua cotação, qual era a informação que você ia me passar?");
-
+            twiml.message(responseToSend);
             return res.type('text/xml').send(twiml.toString());
         }
 
-        // VERIFICA SE O USUÁRIO JÁ ESTÁ EM UM FLUXO
+        // Passo 2: Se não é uma pergunta, vamos ver se estamos em um fluxo
         if (conversationState[sessionId] === 'IN_FLOW') {
-            console.log('Usuário está em um fluxo. Enviando para o Dialogflow...');
+            console.log('Não é pergunta genérica. Enviando para o Dialogflow continuar o fluxo...');
             const dialogflowRequest = twilioToDetectIntent(req);
             const [dialogflowResponse] = await dialogflowClient.detectIntent(dialogflowRequest);
 
-            console.log('DEBUG: Parâmetros atuais na sessão do Dialogflow:', JSON.stringify(dialogflowResponse.queryResult.parameters, null, 2));
-
-            // ▼▼▼ LÓGICA ATUALIZADA PARA FIM DE FLUXO OU CANCELAMENTO ▼▼▼
-            // Procura pelo nosso "sinal secreto" (Custom Payload) na resposta
             const customPayload = dialogflowResponse.queryResult.responseMessages.find(
                 msg => msg.payload && msg.payload.fields && msg.payload.fields.flow_status
             );
 
-            // Se o sinal for encontrado e for "finished" ou "cancelled_by_user", reseta o estado
             if (customPayload) {
                 const flowStatus = customPayload.payload.fields.flow_status.stringValue;
                 if (flowStatus === 'finished' || flowStatus === 'cancelled_by_user') {
-                    console.log(`Sinal de '${flowStatus}' detectado. Resetando estado para IA Generativa.`);
+                    console.log(`Sinal de '${flowStatus}' detectado. Resetando estado e histórico.`);
                     delete conversationState[sessionId];
                     delete conversationHistory[sessionId];
                 }
             }
 
             const twimlResponse = detectIntentToTwilio(dialogflowResponse);
-            res.type('text/xml').send(twimlResponse.toString());
-            return;
+            return res.type('text/xml').send(twimlResponse.toString());
         }
 
-        // SE NÃO ESTIVER EM FLUXO, USA A IA GENERATIVA
-        console.log('Iniciando conversa com o Gemini...');
+        // Passo 3: Se não está em fluxo e não é pergunta, a IA decide o que fazer
+        console.log('Conversa aberta com a IA para decisão de fluxo...');
         const chat = generativeModel.startChat({
             history: conversationHistory[sessionId],
             systemInstruction: { role: 'system', parts: [{ text: mainPrompt }] }
@@ -308,9 +303,7 @@ app.post('/', async (req, res) => {
         if (jsonMatch && jsonMatch[0]) {
             try {
                 actionJson = JSON.parse(jsonMatch[0]);
-            } catch (e) {
-                console.error("Não foi possível analisar a resposta como JSON, tratando como texto normal.", e);
-            }
+            } catch (e) { console.error("Falha ao analisar JSON:", e); }
         }
 
         if (actionJson && actionJson.action) {
