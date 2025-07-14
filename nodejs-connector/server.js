@@ -290,8 +290,10 @@ app.post('/', async (req, res) => {
                 const dialogflowRequest = twilioToDetectIntent(req);
                 const [dialogflowResponse] = await dialogflowClient.detectIntent(dialogflowRequest);
 
-                const twimlResponse = detectIntentToTwilio(dialogflowResponse);
-                responseToSend = twimlResponse.message().body;
+                const responseToSend = (dialogflowResponse.queryResult.responseMessages || [])
+                    .filter(m => m.text && m.text.text.length > 0)
+                    .map(m => m.text.text.join('\n'))
+                    .join('\n');
 
                 // Guarda a pergunta atual do bot para o caso de precisarmos pausar no futuro.
                 if (responseToSend) {
