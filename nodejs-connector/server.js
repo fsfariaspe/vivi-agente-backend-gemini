@@ -226,6 +226,8 @@ async function triggerDialogflowEvent(eventName, sessionId, produto, params = {}
 
     console.log(`Disparando evento: ${eventName} com produto: ${produto} e com parâmetros:`, params);
     console.log('DEBUG: Enviando os seguintes queryParams:', JSON.stringify(request.queryParams, null, 2));
+    conversationState[sessionId] = 'in_flow';
+    console.log(`Estado da conversa para ${sessionId} definido como 'in_flow'`);
     const [response] = await dialogflowClient.detectIntent(request);
     return response;
 }
