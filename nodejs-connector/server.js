@@ -302,9 +302,18 @@ app.post('/', async (req, res) => {
                 console.log(`DEBUG: Mensagem final a ser enviada para o Twilio: "${responseToSend}"`);
 
 
-                // Guarda a pergunta atual do bot para o caso de precisarmos pausar no futuro.
                 if (responseToSend) {
+                    console.log(`Enviando resposta do Dialogflow: "${responseToSend}"`);
+
+                    // Guarda a pergunta atual do bot para o caso de precisarmos pausar no futuro.
                     flowContext[sessionId] = { lastBotQuestion: responseToSend };
+
+                    res.type('text/xml').send(twimlResponse.toString());
+                } else {
+                    // Se não houver texto, significa que o Dialogflow apenas processou uma ação interna.
+                    // Encerramos a requisição com 200 OK para a Twilio saber que recebemos, mas não respondemos nada.
+                    console.log('Dialogflow processou a entrada, mas não há mensagem para enviar. Aguardando próximo passo.');
+                    res.status(200).send();
                 }
 
                 // Verifica se o Dialogflow enviou o sinal de que o fluxo terminou.
