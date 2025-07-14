@@ -334,7 +334,10 @@ app.post('/', async (req, res) => {
                 const produto = actionJson.action.includes('passagem') ? 'passagem' : 'cruzeiro';
 
                 const dialogflowResponse = await triggerDialogflowEvent('iniciar_cotacao', sessionId, produto, parameters);
-                const flowFirstMessage = detectIntentToTwilio(dialogflowResponse).message().body;
+                const flowFirstMessage = (dialogflowResponse.queryResult.responseMessages || [])
+                    .filter(m => m.text && m.text.text.length > 0)
+                    .map(m => m.text.text.join('\n'))
+                    .join('\n');
 
                 responseToSend = `${transitionMessage}${flowFirstMessage ? `\n\n${flowFirstMessage}` : ''}`;
                 if (flowFirstMessage) {
