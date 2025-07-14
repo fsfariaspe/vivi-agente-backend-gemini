@@ -290,10 +290,17 @@ app.post('/', async (req, res) => {
                 const dialogflowRequest = twilioToDetectIntent(req);
                 const [dialogflowResponse] = await dialogflowClient.detectIntent(dialogflowRequest);
 
+                // ▼▼▼ LOG DE DIAGNÓSTICO 1: O QUE O DIALOGFLOW RESPONDEU? ▼▼▼
+                console.log('DEBUG: Resposta completa do Dialogflow:', JSON.stringify(dialogflowResponse, null, 2));
+
                 const responseToSend = (dialogflowResponse.queryResult.responseMessages || [])
                     .filter(m => m.text && m.text.text.length > 0)
                     .map(m => m.text.text.join('\n'))
                     .join('\n');
+
+                // ▼▼▼ LOG DE DIAGNÓSTICO 2: O QUE ESTAMOS PRESTES A ENVIAR? ▼▼▼
+                console.log(`DEBUG: Mensagem final a ser enviada para o Twilio: "${responseToSend}"`);
+
 
                 // Guarda a pergunta atual do bot para o caso de precisarmos pausar no futuro.
                 if (responseToSend) {
