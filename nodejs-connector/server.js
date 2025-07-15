@@ -320,6 +320,7 @@ app.post('/', async (req, res) => {
             if (actionJson && actionJson.action) {
                 const transitionMessage = actionJson.response || "Ok, vamos começar!";
                 const parameters = actionJson.parameters || {};
+                const geminiText = (await result.response).candidates[0].content.parts[0].text;
                 const produto = actionJson.action.includes('passagem') ? 'passagem' : 'cruzeiro';
 
                 conversationState[sessionId] = 'IN_FLOW';
