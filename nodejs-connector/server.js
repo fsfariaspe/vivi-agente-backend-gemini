@@ -287,11 +287,18 @@ app.post('/', async (req, res) => {
             // ESTADO: EM FLUXO - Interagindo com o Dialogflow
         } else if (conversationState[sessionId] === 'in_flow') {
             if (isGenericQuestion(userInput)) {
-                console.log('Pergunta genérica detectada. Pausando fluxo...');
-                conversationState[sessionId] = 'paused';
+                console.log('Pergunta genérica detectada. Pausando fluxo e acionando IA...');
+                conversationState[sessionId] = 'paused'; // PAUSA o fluxo
+
+                // ▼▼▼ CORREÇÃO APLICADA AQUI ▼▼▼
                 const result = await generativeModel.generateContent({ contents: [{ role: 'user', parts: [{ text: userInput }] }] });
-                const geminiText = (await result.response).candidates[0].content.parts[0].text;
+                const response = result.response;
+                const geminiText = response.candidates[0].content.parts[0].text;
+                // ▲▲▲ FIM DA CORREÇÃO ▲▲▲
+
+                // Monta a resposta da IA + a pergunta de retomada.
                 responseToSend = `${geminiText}\n\nPodemos voltar para a sua cotação agora? (responda 'sim' para continuar)`;
+
             } else {
                 console.log('Não é pergunta genérica. Enviando para o Dialogflow...');
                 const dialogflowRequest = twilioToDetectIntent(req);
