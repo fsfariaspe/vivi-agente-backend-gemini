@@ -277,6 +277,7 @@ app.post('/', async (req, res) => {
                 console.log('Não é pergunta genérica. Enviando para o Dialogflow...');
                 const dialogflowRequest = twilioToDetectIntent(req);
                 const [dialogflowResponse] = await dialogflowClient.detectIntent(dialogflowRequest);
+                console.log('DEBUG: Resposta completa recebida do Dialogflow:', JSON.stringify(dialogflowResponse, null, 2));
                 const twimlResponse = detectIntentToTwilio(dialogflowResponse);
                 const responseToSend = (dialogflowResponse.queryResult.responseMessages || [])
                     .filter(m => m.text && m.text.text.length > 0)
