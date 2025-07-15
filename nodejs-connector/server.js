@@ -243,33 +243,28 @@ app.post('/', async (req, res) => {
 
     try {
         if (conversationState[sessionId] === 'AWAITING_FLOW_CONFIRMATION') {
-            // 1.1: Se o usuário responder "sim"...
-            if (userInput.toLowerCase().trim() === 'sim') {
+            // Verifica se o usuário disse "sim" E se o contexto do fluxo existe
+            if (userInput.toLowerCase().trim() === 'sim' && flowContext[sessionId]) {
                 console.log('Usuário confirmou o início do fluxo.');
 
-                // Pega os dados que guardamos no passo anterior (ação e parâmetros)
                 const { action, parameters } = flowContext[sessionId];
                 const produto = action.includes('passagem') ? 'passagem' : 'cruzeiro';
 
-                // Muda o estado para IN_FLOW e dispara o evento para o Dialogflow
                 conversationState[sessionId] = 'in_flow';
                 const dialogflowResponse = await triggerDialogflowEvent('iniciar_cotacao', sessionId, produto, parameters);
 
-                // Extrai e prepara a primeira pergunta do fluxo para ser enviada
                 responseToSend = (dialogflowResponse.queryResult.responseMessages || [])
                     .filter(m => m.text && m.text.text.length > 0)
                     .map(m => m.text.text.join('\n'))
                     .join('\n');
 
-                // Guarda a pergunta para a lógica de pausa futura
                 if (responseToSend) {
                     flowContext[sessionId].lastBotQuestion = responseToSend;
                 }
 
             } else {
-                // 1.2: Se o usuário não disse "sim", a IA assume de volta
-                console.log('Usuário não confirmou. Voltando para a IA.');
-                delete conversationState[sessionId]; // Volta para o estado 'ia'
+                console.log('Usuário não confirmou ou contexto perdido. Voltando para a IA.');
+                delete conversationState[sessionId];
 
                 const chat = generativeModel.startChat({ history: conversationHistory[sessionId] });
                 const result = await chat.sendMessage("Ok, não vou iniciar a cotação agora. Como posso te ajudar então?");
@@ -349,9 +344,10 @@ app.post('/', async (req, res) => {
                 const dialogflowResponse = await triggerDialogflowEvent('iniciar_cotacao', sessionId, produto, parameters);
                 const flowFirstMessage = detectIntentToTwilio(dialogflowResponse).message().body;
 
-                conversationState[sessionId] = 'AWAITING_FLOW_CONFIRMATION';
                 // Envia a mensagem de transição e a primeira pergunta em balões separados
-                /*twiml.message(transitionMessage);
+                twiml.message(transitionMessage);
+                conversationState[sessionId] = 'AWAITING_FLOW_CONFIRMATION';
+                /*
                 if (flowFirstMessage) {
                     twiml.message(flowFirstMessage);
                 }*/
