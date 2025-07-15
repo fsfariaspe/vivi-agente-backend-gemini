@@ -342,7 +342,10 @@ app.post('/', async (req, res) => {
                 const produto = actionJson.action.includes('passagem') ? 'passagem' : 'cruzeiro';
 
                 const dialogflowResponse = await triggerDialogflowEvent('iniciar_cotacao', sessionId, produto, parameters);
-                const flowFirstMessage = detectIntentToTwilio(dialogflowResponse).message().body;
+                const flowFirstMessage = (dialogflowResponse.queryResult.responseMessages || [])
+                    .filter(m => m.text && m.text.text.length > 0)
+                    .map(m => m.text.text.join('\n'))
+                    .join('\n');
 
                 // Envia a mensagem de transição e a primeira pergunta em balões separados
                 twiml.message(transitionMessage);
@@ -351,6 +354,13 @@ app.post('/', async (req, res) => {
                 if (flowFirstMessage) {
                     twiml.message(flowFirstMessage);
                 }*/
+                flowContext[sessionId] = {
+                    action: actionJson.action,
+                    parameters: parameters,
+                    lastBotQuestion: flowFirstMessage
+                };
+
+                console.log(`Status da conversationState: ${conversationState[sessionId]}`);
 
                 return res.type('text/xml').send(twiml.toString());
             } else {
