@@ -293,6 +293,7 @@ app.post('/', async (req, res) => {
                 // ▼▼▼ LOG DE DIAGNÓSTICO 1: O QUE O DIALOGFLOW RESPONDEU? ▼▼▼
                 console.log('DEBUG: Resposta completa do Dialogflow:', JSON.stringify(dialogflowResponse, null, 2));
 
+                const twimlResponse = detectIntentToTwilio(dialogflowResponse);
                 const responseToSend = (dialogflowResponse.queryResult.responseMessages || [])
                     .filter(m => m.text && m.text.text.length > 0)
                     .map(m => m.text.text.join('\n'))
