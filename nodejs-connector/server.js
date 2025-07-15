@@ -358,10 +358,7 @@ app.post('/', async (req, res) => {
                 // Envia a mensagem de transição e a primeira pergunta em balões separados
                 twiml.message(transitionMessage);
                 conversationState[sessionId] = 'AWAITING_FLOW_CONFIRMATION';
-                /*
-                if (flowFirstMessage) {
-                    twiml.message(flowFirstMessage);
-                }*/
+
                 flowContext[sessionId] = {
                     action: actionJson.action,
                     parameters: parameters,
@@ -370,7 +367,16 @@ app.post('/', async (req, res) => {
 
                 console.log(`Status da conversationState: ${conversationState[sessionId]}`);
 
-                return res.type('text/xml').send(twiml.toString());
+                // No bloco final de envio, garanta que ele use a twiml que já foi preenchida
+                // ou preencha-a agora se ainda não foi.
+                if (!res.headersSent) {
+                    if (responseToSend) {
+                        twiml.message(responseToSend);
+                    }
+                    res.type('text/xml').send(twiml.toString());
+                }
+
+                return;
             } else {
                 responseToSend = geminiResponseText;
             }
