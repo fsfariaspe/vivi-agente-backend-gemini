@@ -248,51 +248,35 @@ app.post('/', async (req, res) => {
     }
 
     try {
-        let responseToSend = "";
+        let responseToSend; // A variável que guardará a resposta final
+        let shouldUpdateHistory = true;
 
-        // --- ETAPA 2: LÓGICA DE ESTADO ---
-
-        // ESTADO "PAUSED": O fluxo foi interrompido por uma pergunta.
-        // O bot está esperando um "sim" para continuar de onde parou.
+        // ESTADO 1: A conversa está PAUSADA
         if (conversationState[sessionId] === 'paused') {
             if (userInput.toLowerCase().trim() === 'sim') {
                 console.log('Usuário confirmou o retorno ao fluxo.');
-                conversationState[sessionId] = 'in_flow'; // Retorna ao modo de fluxo
-
-                // Pega a última pergunta que o bot fez e a envia novamente.
-                responseToSend = flowContext[sessionId]?.lastBotQuestion || "Ok, continuando... Qual era a informação que você ia me passar?";
+                conversationState[sessionId] = 'in_flow';
+                responseToSend = flowContext[sessionId]?.lastBotQuestion || "Ok, continuando...";
             } else {
-                // Se o usuário não disse "sim", ele provavelmente fez outra pergunta.
-                // A IA responde e depois pergunta novamente se pode voltar ao fluxo.
                 console.log('Usuário não quer voltar ao fluxo. Acionando IA...');
-                const result = await generativeModel.generateContent({ contents: [{ role: 'user', parts: [{ text: userInput }] }] });
-                const geminiText = (await result.response).candidates[0].content.parts[0].text;
-                responseToSend = `${geminiText}\n\nQuando quiser, me diga 'sim' para continuarmos a cotação.`;
+                const chat = generativeModel.startChat({ history: conversationHistory[sessionId] });
+                const result = await chat.sendMessage(userInput);
+                responseToSend = (await result.response).candidates[0].content.parts[0].text;
+                responseToSend += "\n\nQuando quiser, me diga 'sim' para continuarmos a cotação.";
             }
 
-            // ESTADO "IN_FLOW": O usuário está no meio de um fluxo de coleta de dados.
+            // ESTADO 2: O usuário está NO MEIO DE UM FLUXO
         } else if (conversationState[sessionId] === 'in_flow') {
-            // Mesmo em fluxo, primeiro verificamos se o usuário fez uma pergunta genérica.
             if (isGenericQuestion(userInput)) {
-                console.log('Pergunta genérica detectada no meio do fluxo. Pausando fluxo e acionando IA...');
-                conversationState[sessionId] = 'paused'; // PAUSA o fluxo
-
-                // Envia a pergunta para a IA responder.
+                console.log('Pergunta genérica detectada. Pausando fluxo e acionando IA...');
+                conversationState[sessionId] = 'paused';
                 const result = await generativeModel.generateContent({ contents: [{ role: 'user', parts: [{ text: userInput }] }] });
                 const geminiText = (await result.response).candidates[0].content.parts[0].text;
-
-                // Monta a resposta da IA + a pergunta de retomada.
                 responseToSend = `${geminiText}\n\nPodemos voltar para a sua cotação agora? (responda 'sim' para continuar)`;
-
             } else {
-                // Se não for uma pergunta, é uma resposta para o fluxo. Envia para o Dialogflow.
-                console.log('Não é pergunta genérica. Enviando para o Dialogflow continuar o fluxo...');
+                console.log('Não é pergunta genérica. Enviando para o Dialogflow...');
                 const dialogflowRequest = twilioToDetectIntent(req);
                 const [dialogflowResponse] = await dialogflowClient.detectIntent(dialogflowRequest);
-
-                // ▼▼▼ LOG DE DIAGNÓSTICO 1: O QUE O DIALOGFLOW RESPONDEU? ▼▼▼
-                console.log('DEBUG: Resposta completa do Dialogflow:', JSON.stringify(dialogflowResponse, null, 2));
-
                 const twimlResponse = detectIntentToTwilio(dialogflowResponse);
                 const responseToSend = (dialogflowResponse.queryResult.responseMessages || [])
                     .filter(m => m.text && m.text.text.length > 0)
@@ -302,22 +286,9 @@ app.post('/', async (req, res) => {
                 // ▼▼▼ LOG DE DIAGNÓSTICO 2: O QUE ESTAMOS PRESTES A ENVIAR? ▼▼▼
                 console.log(`DEBUG: Mensagem final a ser enviada para o Twilio: "${responseToSend}"`);
 
-
                 if (responseToSend) {
-                    console.log(`Enviando resposta do Dialogflow: "${responseToSend}"`);
-
-                    // Guarda a pergunta atual do bot para o caso de precisarmos pausar no futuro.
                     flowContext[sessionId] = { lastBotQuestion: responseToSend };
-
-                    res.type('text/xml').send(twimlResponse.toString());
-                } else {
-                    // Se não houver texto, significa que o Dialogflow apenas processou uma ação interna.
-                    // Encerramos a requisição com 200 OK para a Twilio saber que recebemos, mas não respondemos nada.
-                    console.log('Dialogflow processou a entrada, mas não há mensagem para enviar. Aguardando próximo passo.');
-                    res.status(200).send();
                 }
-
-                // Verifica se o Dialogflow enviou o sinal de que o fluxo terminou.
                 const customPayload = dialogflowResponse.queryResult.responseMessages.find(m => m.payload?.fields?.flow_status);
                 if (customPayload) {
                     const flowStatus = customPayload.payload.fields.flow_status.stringValue;
@@ -330,9 +301,9 @@ app.post('/', async (req, res) => {
                 }
             }
 
-            // ESTADO "ia": A IA está no controle para ter uma conversa aberta e decidir quando iniciar um fluxo.
+            // ESTADO 3: A IA está no controle
         } else {
-            console.log('IA no controle. Verificando intenção do usuário...');
+            console.log('IA no controle. Verificando intenção...');
             const chat = generativeModel.startChat({
                 history: conversationHistory[sessionId],
                 systemInstruction: { role: 'system', parts: [{ text: mainPrompt }] }
@@ -346,13 +317,12 @@ app.post('/', async (req, res) => {
                 if (jsonMatch) actionJson = JSON.parse(jsonMatch[0]);
             } catch (e) { }
 
-            // Se a IA retornou um JSON de ação, inicia o fluxo.
             if (actionJson && actionJson.action) {
-                console.log(`Ação detectada: ${actionJson.action}`);
-                conversationState[sessionId] = 'IN_FLOW';
                 const transitionMessage = actionJson.response || "Ok, vamos começar!";
                 const parameters = actionJson.parameters || {};
                 const produto = actionJson.action.includes('passagem') ? 'passagem' : 'cruzeiro';
+
+                conversationState[sessionId] = 'IN_FLOW';
 
                 const dialogflowResponse = await triggerDialogflowEvent('iniciar_cotacao', sessionId, produto, parameters);
                 const flowFirstMessage = (dialogflowResponse.queryResult.responseMessages || [])
@@ -360,21 +330,38 @@ app.post('/', async (req, res) => {
                     .map(m => m.text.text.join('\n'))
                     .join('\n');
 
-                responseToSend = `${transitionMessage}${flowFirstMessage ? `\n\n${flowFirstMessage}` : ''}`;
-                if (flowFirstMessage) {
-                    flowContext[sessionId] = { lastBotQuestion: flowFirstMessage };
+                // ▼▼▼ CORREÇÃO APLICADA AQUI ▼▼▼
+                // Enviaremos a mensagem de transição e a primeira pergunta em dois balões separados
+                const twiml = new MessagingResponse();
+                twiml.message(transitionMessage);
+
+                // Monta a resposta da IA + a pergunta de retomada.
+                responseToSend = `${geminiText}\n\nPodemos iniciar a sua cotação agora? (responda 'sim' para continuar)`;
+
+                // Se a resposta for 'sim', envia a primeira mensagem do fluxo
+                if ((responseToSend) === 'sim') {
+                    // Se houver uma primeira mensagem do fluxo, ela será enviada como uma nova mensagem
+                    if (flowFirstMessage) {
+                        twiml.message(flowFirstMessage);
+                    }
                 }
+                conversationHistory[sessionId].push({ role: "user", parts: [{ text: userInput }] });
+                conversationHistory[sessionId].push({ role: "model", parts: [{ text: transitionMessage }] });
+
+                // A resposta já é enviada aqui, e a função termina.
+                return res.type('text/xml').send(twiml.toString());
+
             } else {
-                // Se não, é uma conversa normal.
                 responseToSend = geminiResponseText;
             }
         }
 
-        // Salva a interação no histórico para dar contexto para a IA.
-        conversationHistory[sessionId].push({ role: "user", parts: [{ text: userInput }] });
-        conversationHistory[sessionId].push({ role: "model", parts: [{ text: responseToSend }] });
+        // --- Bloco Final e Único de Resposta ---
+        if (shouldUpdateHistory) {
+            conversationHistory[sessionId].push({ role: "user", parts: [{ text: userInput }] });
+            conversationHistory[sessionId].push({ role: "model", parts: [{ text: responseToSend }] });
+        }
 
-        // Envia a resposta final para o WhatsApp.
         const twiml = new MessagingResponse();
         twiml.message(responseToSend);
         res.type('text/xml').send(twiml.toString());
