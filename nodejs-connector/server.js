@@ -52,7 +52,7 @@ Vivi: (RETORNA APENAS O JSON ABAIXO)
 \`\`\`json
 {
   "action": "iniciar_cotacao_passagem",
-  "response": "Com certeza! Fortaleza é um destino maravilhoso! Para te ajudar a encontrar as melhores passagens, vou iniciar nosso assistente de cotação. É bem rapidinho!",
+  "response": "Com certeza! Fortaleza é um destino maravilhoso! Para te ajudar a encontrar as melhores passagens, vou iniciar nosso assistente de cotação. É bem rapidinho! Para confirmar digite (Sim)",
   "parameters": {
     "destino": "Fortaleza"
   }
@@ -287,20 +287,30 @@ app.post('/', async (req, res) => {
                 // ▼▼▼ LOG DE DIAGNÓSTICO 2: O QUE ESTAMOS PRESTES A ENVIAR? ▼▼▼
                 console.log(`DEBUG: Mensagem final a ser enviada para o Twilio: "${responseToSend}"`);
 
+                // Verifica se há algo para responder
                 if (responseToSend) {
+                    // Se houver, guarda a pergunta e envia para o usuário
                     flowContext[sessionId] = { lastBotQuestion: responseToSend };
-                }
-                const customPayload = dialogflowResponse.queryResult.responseMessages.find(m => m.payload?.fields?.flow_status);
-                if (customPayload) {
-                    const flowStatus = customPayload.payload.fields.flow_status.stringValue;
-                    if (flowStatus === 'finished' || flowStatus === 'cancelled_by_user') {
-                        console.log(`Sinal de '${flowStatus}' detectado. Resetando estado e histórico.`);
-                        delete conversationState[sessionId];
-                        delete conversationHistory[sessionId];
-                        delete flowContext[sessionId];
-                    }
+                    const twiml = new MessagingResponse();
+                    twiml.message(responseToSend);
+                    return res.type('text/xml').send(twiml.toString());
+                } else {
+                    // Se não houver, significa que o Dialogflow apenas processou e está aguardando
+                    // o próximo passo. Apenas retornamos 200 OK para a Twilio.
+                    return res.status(200).send();
                 }
             }
+            const customPayload = dialogflowResponse.queryResult.responseMessages.find(m => m.payload?.fields?.flow_status);
+            if (customPayload) {
+                const flowStatus = customPayload.payload.fields.flow_status.stringValue;
+                if (flowStatus === 'finished' || flowStatus === 'cancelled_by_user') {
+                    console.log(`Sinal de '${flowStatus}' detectado. Resetando estado e histórico.`);
+                    delete conversationState[sessionId];
+                    delete conversationHistory[sessionId];
+                    delete flowContext[sessionId];
+                }
+            }
+
 
             // ESTADO 3: A IA está no controle
         } else {
