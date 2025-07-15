@@ -2,7 +2,6 @@ const express = require('express');
 const { SessionsClient } = require('@google-cloud/dialogflow-cx');
 const { VertexAI } = require('@google-cloud/vertexai');
 const MessagingResponse = require('twilio').twiml.MessagingResponse;
-const path = require('path');
 const bodyParser = require('body-parser');
 
 require('dotenv').config();
@@ -276,12 +275,13 @@ app.post('/', async (req, res) => {
             if (userInput.toLowerCase().trim() === 'sim') {
                 console.log('Usuário confirmou o retorno ao fluxo.');
                 conversationState[sessionId] = 'in_flow';
-                responseToSend = flowContext[sessionId]?.lastBotQuestion || "Ok, continuando... Qual era a informação que você ia me passar?";
+                responseToSend = flowContext[sessionId]?.lastBotQuestion || "Ok, continuando...";
             } else {
                 console.log('IA responde enquanto fluxo está pausado...');
-                const result = await generativeModel.generateContent({ contents: [{ role: 'user', parts: [{ text: userInput }] }] });
-                const geminiText = (await result.response).candidates[0].content.parts[0].text;
-                responseToSend = `${geminiText}\n\nQuando quiser, me diga 'sim' para continuarmos a cotação.`;
+                const chat = generativeModel.startChat({ history: conversationHistory[sessionId] });
+                const result = await chat.sendMessage(userInput);
+                responseToSend = (await result.response).candidates[0].content.parts[0].text;
+                responseToSend += "\n\nQuando quiser, me diga 'sim' para continuarmos a cotação.";
             }
 
             // ESTADO: EM FLUXO - Interagindo com o Dialogflow
