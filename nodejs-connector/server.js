@@ -226,52 +226,48 @@ async function triggerDialogflowEvent(eventName, sessionId, produto, params = {}
 
     console.log(`Disparando evento: ${eventName} com produto: ${produto} e com parâmetros:`, params);
     console.log('DEBUG: Enviando os seguintes queryParams:', JSON.stringify(request.queryParams, null, 2));
-    conversationState[sessionId] = 'in_flow';
-    console.log(`Estado da conversa para ${sessionId} definido como 'in_flow'`);
     const [response] = await dialogflowClient.detectIntent(request);
     return response;
 }
 
 // --- ROTA PRINCIPAL ---
 app.post('/', async (req, res) => {
-    // --- ETAPA 1: INICIALIZAÇÃO ---
-    // Coleta a entrada do usuário e o ID da sessão.
-    // Garante que os objetos de estado e histórico existam para este usuário.
     const userInput = req.body.Body;
     const sessionId = req.body.From.replace('whatsapp:', '');
 
-    if (!conversationState[sessionId]) {
-        conversationState[sessionId] = 'ia'; // O estado padrão é conversando com a IA
-    }
-    if (!conversationHistory[sessionId]) {
-        conversationHistory[sessionId] = [];
-    }
+    if (!conversationHistory[sessionId]) conversationHistory[sessionId] = [];
+    if (!conversationState[sessionId]) conversationState[sessionId] = 'ia';
+
+    let responseToSend = "";
+    const twiml = new MessagingResponse();
 
     try {
-        let responseToSend; // A variável que guardará a resposta final
-        let shouldUpdateHistory = true;
-
-        // ESTADO 0: AGUARDANDO CONFIRMAÇÃO PARA INICIAR O FLUXO
         if (conversationState[sessionId] === 'AWAITING_FLOW_CONFIRMATION') {
+            // 1.1: Se o usuário responder "sim"...
             if (userInput.toLowerCase().trim() === 'sim') {
                 console.log('Usuário confirmou o início do fluxo.');
 
-                // Pega os dados que guardamos no passo anterior
+                // Pega os dados que guardamos no passo anterior (ação e parâmetros)
                 const { action, parameters } = flowContext[sessionId];
                 const produto = action.includes('passagem') ? 'passagem' : 'cruzeiro';
 
                 // Muda o estado para IN_FLOW e dispara o evento para o Dialogflow
-                conversationState[sessionId] = 'IN_FLOW';
+                conversationState[sessionId] = 'in_flow';
                 const dialogflowResponse = await triggerDialogflowEvent('iniciar_cotacao', sessionId, produto, parameters);
 
-                // Extrai e envia a primeira pergunta do fluxo
+                // Extrai e prepara a primeira pergunta do fluxo para ser enviada
                 responseToSend = (dialogflowResponse.queryResult.responseMessages || [])
                     .filter(m => m.text && m.text.text.length > 0)
                     .map(m => m.text.text.join('\n'))
                     .join('\n');
 
+                // Guarda a pergunta para a lógica de pausa futura
+                if (responseToSend) {
+                    flowContext[sessionId].lastBotQuestion = responseToSend;
+                }
+
             } else {
-                // Se o usuário não disse "sim", a IA assume de volta
+                // 1.2: Se o usuário não disse "sim", a IA assume de volta
                 console.log('Usuário não confirmou. Voltando para a IA.');
                 delete conversationState[sessionId]; // Volta para o estado 'ia'
 
@@ -280,32 +276,23 @@ app.post('/', async (req, res) => {
                 responseToSend = (await result.response).candidates[0].content.parts[0].text;
             }
 
-            // Atualiza o histórico e envia a resposta
-            conversationHistory[sessionId].push({ role: "user", parts: [{ text: userInput }] });
-            conversationHistory[sessionId].push({ role: "model", parts: [{ text: responseToSend }] });
-            const twiml = new MessagingResponse();
-            twiml.message(responseToSend);
-            return res.type('text/xml').send(twiml.toString());
-        }
-
-        // ESTADO 1: A conversa está PAUSADA
-        if (conversationState[sessionId] === 'paused') {
+            // ESTADO: PAUSADO - Aguardando 'sim' para retornar ao fluxo
+        } else if (conversationState[sessionId] === 'paused') {
             if (userInput.toLowerCase().trim() === 'sim') {
                 console.log('Usuário confirmou o retorno ao fluxo.');
                 conversationState[sessionId] = 'in_flow';
-                responseToSend = flowContext[sessionId]?.lastBotQuestion || "Ok, continuando...";
+                responseToSend = flowContext[sessionId]?.lastBotQuestion || "Ok, continuando... Qual era a informação que você ia me passar?";
             } else {
-                console.log('Usuário não quer voltar ao fluxo. Acionando IA...');
-                const chat = generativeModel.startChat({ history: conversationHistory[sessionId] });
-                const result = await chat.sendMessage(userInput);
-                responseToSend = (await result.response).candidates[0].content.parts[0].text;
-                responseToSend += "\n\nQuando quiser, me diga 'sim' para continuarmos a cotação.";
+                console.log('IA responde enquanto fluxo está pausado...');
+                const result = await generativeModel.generateContent({ contents: [{ role: 'user', parts: [{ text: userInput }] }] });
+                const geminiText = (await result.response).candidates[0].content.parts[0].text;
+                responseToSend = `${geminiText}\n\nQuando quiser, me diga 'sim' para continuarmos a cotação.`;
             }
 
-            // ESTADO 2: O usuário está NO MEIO DE UM FLUXO
+            // ESTADO: EM FLUXO - Interagindo com o Dialogflow
         } else if (conversationState[sessionId] === 'in_flow') {
             if (isGenericQuestion(userInput)) {
-                console.log('Pergunta genérica detectada. Pausando fluxo e acionando IA...');
+                console.log('Pergunta genérica detectada. Pausando fluxo...');
                 conversationState[sessionId] = 'paused';
                 const result = await generativeModel.generateContent({ contents: [{ role: 'user', parts: [{ text: userInput }] }] });
                 const geminiText = (await result.response).candidates[0].content.parts[0].text;
@@ -314,42 +301,29 @@ app.post('/', async (req, res) => {
                 console.log('Não é pergunta genérica. Enviando para o Dialogflow...');
                 const dialogflowRequest = twilioToDetectIntent(req);
                 const [dialogflowResponse] = await dialogflowClient.detectIntent(dialogflowRequest);
-                console.log('DEBUG: Resposta completa recebida do Dialogflow:', JSON.stringify(dialogflowResponse, null, 2));
                 const twimlResponse = detectIntentToTwilio(dialogflowResponse);
-                const responseToSend = (dialogflowResponse.queryResult.responseMessages || [])
+                responseToSend = (dialogflowResponse.queryResult.responseMessages || [])
                     .filter(m => m.text && m.text.text.length > 0)
                     .map(m => m.text.text.join('\n'))
                     .join('\n');
 
-                // ▼▼▼ LOG DE DIAGNÓSTICO 2: O QUE ESTAMOS PRESTES A ENVIAR? ▼▼▼
-                console.log(`DEBUG: Mensagem final a ser enviada para o Twilio: "${responseToSend}"`);
-
-                // Verifica se há algo para responder
                 if (responseToSend) {
-                    // Se houver, guarda a pergunta e envia para o usuário
                     flowContext[sessionId] = { lastBotQuestion: responseToSend };
-                    const twiml = new MessagingResponse();
-                    twiml.message(responseToSend);
-                    return res.type('text/xml').send(twiml.toString());
-                } else {
-                    // Se não houver, significa que o Dialogflow apenas processou e está aguardando
-                    // o próximo passo. Apenas retornamos 200 OK para a Twilio.
-                    return res.status(200).send();
                 }
-            }
-            const customPayload = dialogflowResponse.queryResult.responseMessages.find(m => m.payload?.fields?.flow_status);
-            if (customPayload) {
-                const flowStatus = customPayload.payload.fields.flow_status.stringValue;
-                if (flowStatus === 'finished' || flowStatus === 'cancelled_by_user') {
-                    console.log(`Sinal de '${flowStatus}' detectado. Resetando estado e histórico.`);
-                    delete conversationState[sessionId];
-                    delete conversationHistory[sessionId];
-                    delete flowContext[sessionId];
+
+                const customPayload = dialogflowResponse.queryResult.responseMessages.find(m => m.payload?.fields?.flow_status);
+                if (customPayload) {
+                    const flowStatus = customPayload.payload.fields.flow_status.stringValue;
+                    if (flowStatus === 'finished' || flowStatus === 'cancelled_by_user') {
+                        console.log(`Sinal de '${flowStatus}' detectado. Resetando estado e histórico.`);
+                        delete conversationState[sessionId];
+                        delete conversationHistory[sessionId];
+                        delete flowContext[sessionId];
+                    }
                 }
             }
 
-
-            // ESTADO 3: A IA está no controle
+            // ESTADO: IA - Conversa aberta, decidindo o que fazer
         } else {
             console.log('IA no controle. Verificando intenção...');
             const chat = generativeModel.startChat({
@@ -367,28 +341,34 @@ app.post('/', async (req, res) => {
 
             if (actionJson && actionJson.action) {
                 console.log(`Ação detectada: ${actionJson.action}`);
+                conversationState[sessionId] = 'IN_FLOW';
+                const transitionMessage = actionJson.response || "Ok, vamos começar!";
+                const parameters = actionJson.parameters || {};
+                const produto = actionJson.action.includes('passagem') ? 'passagem' : 'cruzeiro';
 
-                // Em vez de iniciar o fluxo, muda o estado e guarda os dados para mais tarde
+                const dialogflowResponse = await triggerDialogflowEvent('iniciar_cotacao', sessionId, produto, parameters);
+                const flowFirstMessage = detectIntentToTwilio(dialogflowResponse).message().body;
+
                 conversationState[sessionId] = 'AWAITING_FLOW_CONFIRMATION';
-                flowContext[sessionId] = {
-                    action: actionJson.action,
-                    parameters: actionJson.parameters || {}
-                };
+                // Envia a mensagem de transição e a primeira pergunta em balões separados
+                /*twiml.message(transitionMessage);
+                if (flowFirstMessage) {
+                    twiml.message(flowFirstMessage);
+                }*/
 
-                // Monta a frase de transição da IA + a pergunta de confirmação
-                const transitionMessage = actionJson.response || "Ok, encontrei o que você precisa. Posso iniciar o assistente de cotação?";
-                responseToSend = `${transitionMessage}\n\nPosso iniciar? (responda 'sim' para confirmar)`;
+                return res.type('text/xml').send(twiml.toString());
+            } else {
+                responseToSend = geminiResponseText;
             }
         }
 
-        // --- Bloco Final e Único de Resposta ---
-        if (shouldUpdateHistory) {
-            conversationHistory[sessionId].push({ role: "user", parts: [{ text: userInput }] });
-            conversationHistory[sessionId].push({ role: "model", parts: [{ text: responseToSend }] });
+        conversationHistory[sessionId].push({ role: "user", parts: [{ text: userInput }] });
+        conversationHistory[sessionId].push({ role: "model", parts: [{ text: responseToSend }] });
+
+        if (responseToSend) {
+            twiml.message(responseToSend);
         }
 
-        const twiml = new MessagingResponse();
-        twiml.message(responseToSend);
         res.type('text/xml').send(twiml.toString());
 
     } catch (error) {
