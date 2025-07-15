@@ -65,7 +65,7 @@ Vivi: (RETORNA APENAS O JSON ABAIXO)
 \`\`\`json
 {
   "action": "iniciar_cotacao_passagem",
-  "response": "Olá, Eduardo! Claro, vamos cotar sua passagem para o Rio. Vou iniciar nosso assistente para coletar os últimos detalhes.",
+  "response": "Olá, Eduardo! Claro, vamos cotar sua passagem para o Rio. Vou iniciar nosso assistente para coletar os últimos detalhes. Para confirmar digite (Sim)",
   "parameters": {
     "person": "Eduardo",
     "destino": "Rio de Janeiro",
@@ -80,7 +80,7 @@ Vivi: (RETORNA APENAS O JSON ABAIXO)
 \`\`\`json
 {
   "action": "iniciar_cotacao_passagem",
-  "response": "Olá, Eduardo! Claro, vamos cotar sua passagem para o Rio. Vou iniciar nosso assistente para coletar os últimos detalhes.",
+  "response": "Olá, Eduardo! Claro, vamos cotar sua passagem para o Rio. Vou iniciar nosso assistente para coletar os últimos detalhes. Para confirmar digite (Sim)",
   "parameters": {
     "person": "Eduardo",
     "destino": "Rio de Janeiro",
@@ -95,7 +95,7 @@ Vivi: (RETORNA APENAS O JSON ABAIXO)
 \`\`\`json
 {
   "action": "iniciar_cotacao_cruzeiro",
-  "response": "Ótima ideia! Um cruzeiro pela nossa costa é incrível. Vou iniciar o assistente para montarmos a viagem perfeita para vocês!",
+  "response": "Ótima ideia! Um cruzeiro pela nossa costa é incrível. Vou iniciar o assistente para montarmos a viagem perfeita para vocês! Para confirmar digite (Sim)",
   "parameters": {
     "destino_cruzeiro": "Costa Brasileira",
     "adultos_cruzeiro": "2",
@@ -110,7 +110,7 @@ Vivi: (RETORNA APENAS O JSON ABAIXO)
 \`\`\`json
 {
   "action": "iniciar_cotacao_cruzeiro",
-  "response": "Ótima ideia! Um cruzeiro pela nossa costa é incrível. Vou iniciar o assistente para montarmos a viagem perfeita para vocês!",
+  "response": "Ótima ideia! Um cruzeiro pela nossa costa é incrível. Vou iniciar o assistente para montarmos a viagem perfeita para vocês! Para confirmar digite (Sim)",
   "parameters": {
     "destino_cruzeiro": "Costa Brasileira",
     "adultos_cruzeiro": "2",
@@ -251,6 +251,43 @@ app.post('/', async (req, res) => {
         let responseToSend; // A variável que guardará a resposta final
         let shouldUpdateHistory = true;
 
+        // ESTADO 0: AGUARDANDO CONFIRMAÇÃO PARA INICIAR O FLUXO
+        if (conversationState[sessionId] === 'AWAITING_FLOW_CONFIRMATION') {
+            if (userInput.toLowerCase().trim() === 'sim') {
+                console.log('Usuário confirmou o início do fluxo.');
+
+                // Pega os dados que guardamos no passo anterior
+                const { action, parameters } = flowContext[sessionId];
+                const produto = action.includes('passagem') ? 'passagem' : 'cruzeiro';
+
+                // Muda o estado para IN_FLOW e dispara o evento para o Dialogflow
+                conversationState[sessionId] = 'IN_FLOW';
+                const dialogflowResponse = await triggerDialogflowEvent('iniciar_cotacao', sessionId, produto, parameters);
+
+                // Extrai e envia a primeira pergunta do fluxo
+                responseToSend = (dialogflowResponse.queryResult.responseMessages || [])
+                    .filter(m => m.text && m.text.text.length > 0)
+                    .map(m => m.text.text.join('\n'))
+                    .join('\n');
+
+            } else {
+                // Se o usuário não disse "sim", a IA assume de volta
+                console.log('Usuário não confirmou. Voltando para a IA.');
+                delete conversationState[sessionId]; // Volta para o estado 'ia'
+
+                const chat = generativeModel.startChat({ history: conversationHistory[sessionId] });
+                const result = await chat.sendMessage("Ok, não vou iniciar a cotação agora. Como posso te ajudar então?");
+                responseToSend = (await result.response).candidates[0].content.parts[0].text;
+            }
+
+            // Atualiza o histórico e envia a resposta
+            conversationHistory[sessionId].push({ role: "user", parts: [{ text: userInput }] });
+            conversationHistory[sessionId].push({ role: "model", parts: [{ text: responseToSend }] });
+            const twiml = new MessagingResponse();
+            twiml.message(responseToSend);
+            return res.type('text/xml').send(twiml.toString());
+        }
+
         // ESTADO 1: A conversa está PAUSADA
         if (conversationState[sessionId] === 'paused') {
             if (userInput.toLowerCase().trim() === 'sim') {
@@ -329,42 +366,18 @@ app.post('/', async (req, res) => {
             } catch (e) { }
 
             if (actionJson && actionJson.action) {
-                const transitionMessage = actionJson.response || "Ok, vamos começar!";
-                const parameters = actionJson.parameters || {};
-                const geminiText = (await result.response).candidates[0].content.parts[0].text;
-                const produto = actionJson.action.includes('passagem') ? 'passagem' : 'cruzeiro';
+                console.log(`Ação detectada: ${actionJson.action}`);
 
-                conversationState[sessionId] = 'IN_FLOW';
+                // Em vez de iniciar o fluxo, muda o estado e guarda os dados para mais tarde
+                conversationState[sessionId] = 'AWAITING_FLOW_CONFIRMATION';
+                flowContext[sessionId] = {
+                    action: actionJson.action,
+                    parameters: actionJson.parameters || {}
+                };
 
-                const dialogflowResponse = await triggerDialogflowEvent('iniciar_cotacao', sessionId, produto, parameters);
-                const flowFirstMessage = (dialogflowResponse.queryResult.responseMessages || [])
-                    .filter(m => m.text && m.text.text.length > 0)
-                    .map(m => m.text.text.join('\n'))
-                    .join('\n');
-
-                // ▼▼▼ CORREÇÃO APLICADA AQUI ▼▼▼
-                // Enviaremos a mensagem de transição e a primeira pergunta em dois balões separados
-                const twiml = new MessagingResponse();
-                twiml.message(transitionMessage);
-
-                // Monta a resposta da IA + a pergunta de retomada.
-                responseToSend = `${geminiText}\n\nPodemos iniciar a sua cotação agora? (responda 'sim' para continuar)`;
-
-                // Se a resposta for 'sim', envia a primeira mensagem do fluxo
-                if ((responseToSend) === 'sim') {
-                    // Se houver uma primeira mensagem do fluxo, ela será enviada como uma nova mensagem
-                    if (flowFirstMessage) {
-                        twiml.message(flowFirstMessage);
-                    }
-                }
-                conversationHistory[sessionId].push({ role: "user", parts: [{ text: userInput }] });
-                conversationHistory[sessionId].push({ role: "model", parts: [{ text: transitionMessage }] });
-
-                // A resposta já é enviada aqui, e a função termina.
-                return res.type('text/xml').send(twiml.toString());
-
-            } else {
-                responseToSend = geminiResponseText;
+                // Monta a frase de transição da IA + a pergunta de confirmação
+                const transitionMessage = actionJson.response || "Ok, encontrei o que você precisa. Posso iniciar o assistente de cotação?";
+                responseToSend = `${transitionMessage}\n\nPosso iniciar? (responda 'sim' para confirmar)`;
             }
         }
 
