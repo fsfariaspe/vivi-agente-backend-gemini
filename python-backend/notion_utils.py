@@ -50,9 +50,6 @@ def create_notion_page(data: dict) -> tuple[Response, int]:
         NOTION_PROPERTY_MAP["qtd_passageiros"]: {
             "rich_text": [{"text": {"content": str(data.get("qtd_passageiros", ""))}}]
         },
-        NOTION_PROPERTY_MAP["idade_crianca"]: {
-            "rich_text": [{"text": {"content": data.get("idade_crianca", "")}}]
-        },
         NOTION_PROPERTY_MAP["preferencias"]: {
             "rich_text": [{"text": {"content": data.get("preferencias", "")}}]
         },
