@@ -256,6 +256,7 @@ app.post('/', async (req, res) => {
     if (!conversationState[sessionId]) conversationState[sessionId] = 'ia';
 
     let responseToSend = "";
+    let shouldUpdateHistory = true;
 
 
     try {
