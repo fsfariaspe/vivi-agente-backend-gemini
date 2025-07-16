@@ -243,6 +243,7 @@ app.post('/', async (req, res) => {
 
     try {
         if (conversationState[sessionId] === 'AWAITING_FLOW_CONFIRMATION') {
+            console.log('Usuário acabou de entrar no bloco AWAITING_FLOW_CONFIRMATION.');
             // Verifica se o usuário disse "sim" E se o contexto do fluxo existe
             if (userInput.toLowerCase().trim() === 'sim' && flowContext[sessionId]) {
                 console.log('Usuário confirmou o início do fluxo.');
@@ -273,20 +274,57 @@ app.post('/', async (req, res) => {
 
             // ESTADO: PAUSADO - Aguardando 'sim' para retornar ao fluxo
         } else if (conversationState[sessionId] === 'paused') {
+            console.log('Usuário acabou de entrar no bloco paused.');
             if (userInput.toLowerCase().trim() === 'sim') {
                 console.log('Usuário confirmou o retorno ao fluxo.');
                 conversationState[sessionId] = 'in_flow';
-                responseToSend = flowContext[sessionId]?.lastBotQuestion || "Ok, continuando...";
+
+                // Pega os parâmetros que podem ter sido capturados durante a pausa
+                const newParams = flowContext[sessionId]?.newlyCapturedParams || {};
+
+                // Dispara um evento para o Dialogflow se reativar, passando os novos parâmetros
+                const dialogflowResponse = await triggerDialogflowEvent('resume_flow', sessionId, newParams.produto_escolhido, newParams);
+
+                responseToSend = (dialogflowResponse.queryResult.responseMessages || [])
+                    .filter(m => m.text && m.text.text.length > 0)
+                    .map(m => m.text.text.join('\n'))
+                    .join('\n');
+
+                // Se o Dialogflow não tiver uma pergunta (porque pulou etapas), usa a última guardada
+                if (!responseToSend) {
+                    responseToSend = flowContext[sessionId]?.lastBotQuestion || "Ok, continuando...";
+                }
+
             } else {
                 console.log('IA responde enquanto fluxo está pausado...');
                 const chat = generativeModel.startChat({ history: conversationHistory[sessionId] });
                 const result = await chat.sendMessage(userInput);
-                responseToSend = (await result.response).candidates[0].content.parts[0].text;
-                responseToSend += "\n\nQuando quiser, me diga 'sim' para continuarmos a cotação.";
+                const geminiText = (await result.response).candidates[0].content.parts[0].text;
+
+                // ▼▼▼ NOVA LÓGICA DE EXTRAÇÃO DE PARÂMETROS ▼▼▼
+                console.log('Analisando a resposta para extrair parâmetros...');
+                const extractionPrompt = `Analise a seguinte conversa. O usuário disse: "${userInput}" e a IA respondeu: "${geminiText}". Extraia qualquer parâmetro relevante (person, origem, destino, data_ida, etc.) dessa interação e retorne APENAS um objeto JSON com os parâmetros encontrados, ou um JSON vazio {} se nada for encontrado.`;
+                const extractionResult = await generativeModel.generateContent(extractionPrompt);
+                const extractedParamsText = (await extractionResult.response).candidates[0].content.parts[0].text;
+
+                try {
+                    const jsonMatch = extractedParamsText.match(/\{[\s\S]*\}/);
+                    if (jsonMatch) {
+                        const extractedParams = JSON.parse(jsonMatch[0]);
+                        // Guarda os novos parâmetros no contexto para usar depois
+                        flowContext[sessionId].newlyCapturedParams = extractedParams;
+                        console.log('Parâmetros extraídos durante a pausa:', extractedParams);
+                    }
+                } catch (e) {
+                    console.error("Não foi possível analisar os parâmetros extraídos.");
+                }
+
+                responseToSend = `${geminiText}\n\nPodemos voltar para a sua cotação agora? (responda 'sim' para continuar)`;
             }
 
             // ESTADO: EM FLUXO - Interagindo com o Dialogflow
         } else if (conversationState[sessionId] === 'in_flow') {
+            console.log('Usuário acabou de entrar no bloco in_flow.');
             if (isGenericQuestion(userInput)) {
                 console.log('Pergunta genérica detectada. Pausando fluxo e acionando IA...');
                 conversationState[sessionId] = 'paused'; // PAUSA o fluxo
