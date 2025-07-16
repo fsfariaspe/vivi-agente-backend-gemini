@@ -150,31 +150,48 @@ function isGenericQuestion(text) {
     return false;
 }
 
+// ▼▼▼ ADICIONE ESTA NOVA FUNÇÃO AUXILIAR ▼▼▼
+function splitMessage(text, limit = 1600) {
+    if (text.length <= limit) {
+        return [text];
+    }
+    const chunks = [];
+    let currentChunk = "";
+    const words = text.split(' ');
+    for (const word of words) {
+        if ((currentChunk + word).length + 1 > limit) {
+            chunks.push(currentChunk.trim());
+            currentChunk = "";
+        }
+        currentChunk += word + " ";
+    }
+    if (currentChunk) {
+        chunks.push(currentChunk.trim());
+    }
+    return chunks;
+}
+
 // --- FUNÇÕES AUXILIARES (CORRIGIDAS E PRESENTES) ---
 
-const twilioToDetectIntent = (req) => {
+const twilioToDetectIntent = (req, textOverride = null, extraParams = {}) => {
     const sessionId = req.body.From.replace('whatsapp:', '');
-    const sessionPath = dialogflowClient.projectLocationAgentSessionPath(
-        process.env.PROJECT_ID, 'us-central1', process.env.AGENT_ID, sessionId
-    );
+    const sessionPath = dialogflowClient.projectLocationAgentSessionPath(process.env.PROJECT_ID, 'us-central1', process.env.AGENT_ID, sessionId);
+
+    const allParams = { ...extraParams };
+    allParams['source'] = 'WHATSAPP';
+
+    const fields = {};
+    for (const key in allParams) {
+        fields[key] = { stringValue: String(allParams[key]), kind: 'stringValue' };
+    }
 
     const request = {
         session: sessionPath,
         queryInput: {
-            text: { text: req.body.Body },
+            text: { text: textOverride || req.body.Body },
             languageCode: process.env.LANGUAGE_CODE,
         },
-        // ▼▼▼ GARANTINDO QUE O PARÂMETRO DE ORIGEM SEJA ENVIADO ▼▼▼
-        queryParams: {
-            parameters: {
-                fields: {
-                    source: {
-                        stringValue: 'WHATSAPP',
-                        kind: 'stringValue'
-                    }
-                }
-            }
-        }
+        queryParams: { parameters: { fields } }
     };
     return request;
 };
@@ -282,28 +299,34 @@ app.post('/', async (req, res) => {
                 // Pega os parâmetros que podem ter sido capturados durante a pausa
                 const newParams = flowContext[sessionId]?.newlyCapturedParams || {};
 
-                // Dispara um evento para o Dialogflow se reativar, passando os novos parâmetros
-                const dialogflowResponse = await triggerDialogflowEvent('resume_flow', sessionId, newParams.produto_escolhido, newParams);
+                // ▼▼▼ CORREÇÃO APLICADA AQUI ▼▼▼
+                // Reenvia a ÚLTIMA MENSAGEM do usuário para o Dialogflow, 
+                // mas agora com os NOVOS PARÂMETROS que a IA extraiu.
+                const lastUserInput = flowContext[sessionId]?.lastUserInput || "continuar";
+                const dialogflowRequest = twilioToDetectIntent(req, lastUserInput, newParams); // Usando uma versão modificada da sua função
+
+                const [dialogflowResponse] = await dialogflowClient.detectIntent(dialogflowRequest);
 
                 responseToSend = (dialogflowResponse.queryResult.responseMessages || [])
                     .filter(m => m.text && m.text.text.length > 0)
                     .map(m => m.text.text.join('\n'))
                     .join('\n');
 
-                // Se o Dialogflow não tiver uma pergunta (porque pulou etapas), usa a última guardada
                 if (!responseToSend) {
                     responseToSend = flowContext[sessionId]?.lastBotQuestion || "Ok, continuando...";
                 }
 
             } else {
+                // Guarda a pergunta do usuário para reprocessar depois
+                flowContext[sessionId].lastUserInput = userInput;
+
                 console.log('IA responde enquanto fluxo está pausado...');
                 const chat = generativeModel.startChat({ history: conversationHistory[sessionId] });
                 const result = await chat.sendMessage(userInput);
                 const geminiText = (await result.response).candidates[0].content.parts[0].text;
 
-                // ▼▼▼ NOVA LÓGICA DE EXTRAÇÃO DE PARÂMETROS ▼▼▼
                 console.log('Analisando a resposta para extrair parâmetros...');
-                const extractionPrompt = `Analise a seguinte conversa. O usuário disse: "${userInput}" e a IA respondeu: "${geminiText}". Extraia qualquer parâmetro relevante (person, origem, destino, data_ida, etc.) dessa interação e retorne APENAS um objeto JSON com os parâmetros encontrados, ou um JSON vazio {} se nada for encontrado.`;
+                const extractionPrompt = `Analise a seguinte conversa. O usuário disse: "${userInput}" e a IA respondeu: "${geminiText}". Extraia qualquer parâmetro relevante (person, origem, destino, etc.) e retorne APENAS um objeto JSON.`;
                 const extractionResult = await generativeModel.generateContent(extractionPrompt);
                 const extractedParamsText = (await extractionResult.response).candidates[0].content.parts[0].text;
 
@@ -311,7 +334,6 @@ app.post('/', async (req, res) => {
                     const jsonMatch = extractedParamsText.match(/\{[\s\S]*\}/);
                     if (jsonMatch) {
                         const extractedParams = JSON.parse(jsonMatch[0]);
-                        // Guarda os novos parâmetros no contexto para usar depois
                         flowContext[sessionId].newlyCapturedParams = extractedParams;
                         console.log('Parâmetros extraídos durante a pausa:', extractedParams);
                     }
@@ -324,6 +346,7 @@ app.post('/', async (req, res) => {
 
             // ESTADO: EM FLUXO - Interagindo com o Dialogflow
         } else if (conversationState[sessionId] === 'in_flow') {
+
             console.log('Usuário acabou de entrar no bloco in_flow.');
             if (isGenericQuestion(userInput)) {
                 console.log('Pergunta genérica detectada. Pausando fluxo e acionando IA...');
@@ -424,18 +447,16 @@ app.post('/', async (req, res) => {
             }
         }
 
-        conversationHistory[sessionId].push({ role: "user", parts: [{ text: userInput }] });
-        conversationHistory[sessionId].push({ role: "model", parts: [{ text: responseToSend }] });
-
-        // ▼▼▼ REDE DE SEGURANÇA: CORTA A MENSAGEM SE FOR MUITO LONGA ▼▼▼
-        if (responseToSend && responseToSend.length > 1580) {
-            console.log('Aviso: A resposta da IA excedeu o limite e foi cortada.');
-            responseToSend = responseToSend.substring(0, 1580) + '... (continua)';
+        if (shouldUpdateHistory) {
+            conversationHistory[sessionId].push({ role: "user", parts: [{ text: userInput }] });
+            conversationHistory[sessionId].push({ role: "model", parts: [{ text: responseToSend }] });
         }
 
+        // ▼▼▼ LÓGICA DE ENVIO ATUALIZADA ▼▼▼
         const twiml = new MessagingResponse();
         if (responseToSend) {
-            twiml.message(responseToSend);
+            const messageChunks = splitMessage(responseToSend);
+            messageChunks.forEach(chunk => twiml.message(chunk));
         }
 
         res.type('text/xml').send(twiml.toString());
