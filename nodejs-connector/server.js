@@ -334,7 +334,10 @@ app.post('/', async (req, res) => {
                 systemInstruction: { role: 'system', parts: [{ text: mainPrompt }] }
             });
             const result = await chat.sendMessage(userInput);
-            const geminiResponseText = (await result.response).candidates[0].content.parts[0].text;
+
+            // ▼▼▼ CORREÇÃO NA CHAMADA DA IA ▼▼▼
+            const response = result.response;
+            const geminiResponseText = response.candidates[0].content.parts[0].text;
 
             let actionJson = null;
             try {
