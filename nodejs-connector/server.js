@@ -239,7 +239,7 @@ app.post('/', async (req, res) => {
     if (!conversationState[sessionId]) conversationState[sessionId] = 'ia';
 
     let responseToSend = "";
-    const twiml = new MessagingResponse();
+
 
     try {
         if (conversationState[sessionId] === 'AWAITING_FLOW_CONFIRMATION') {
@@ -348,6 +348,7 @@ app.post('/', async (req, res) => {
             if (actionJson && actionJson.action) {
                 console.log(`Ação detectada: ${actionJson.action}`);
                 conversationState[sessionId] = 'IN_FLOW';
+                const twiml = new MessagingResponse();
                 const transitionMessage = actionJson.response || "Ok, vamos começar!";
                 const parameters = actionJson.parameters || {};
                 const produto = actionJson.action.includes('passagem') ? 'passagem' : 'cruzeiro';
