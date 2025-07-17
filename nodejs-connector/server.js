@@ -469,11 +469,20 @@ app.post('/', async (req, res) => {
             conversationHistory[sessionId].push({ role: "model", parts: [{ text: responseToSend }] });
         }
 
-        // ▼▼▼ LÓGICA DE ENVIO ATUALIZADA ▼▼▼
         const twiml = new MessagingResponse();
         if (responseToSend) {
-            const messageChunks = splitMessage(responseToSend);
-            messageChunks.forEach(chunk => twiml.message(chunk));
+            // Verifica se a mensagem é o resumo final
+            const isSummaryMessage = responseToSend.includes("confirme se os dados para sua cotação estão corretos");
+
+            if (isSummaryMessage) {
+                // Se for o resumo, envia a mensagem inteira em um único balão.
+                console.log('Mensagem de resumo detectada. Enviando sem dividir.');
+                twiml.message(responseToSend);
+            } else {
+                // Para todas as outras mensagens, usa a função para dividir em múltiplos balões.
+                const messageChunks = splitMessage(responseToSend);
+                messageChunks.forEach(chunk => twiml.message(chunk));
+            }
         }
 
         res.type('text/xml').send(twiml.toString());
