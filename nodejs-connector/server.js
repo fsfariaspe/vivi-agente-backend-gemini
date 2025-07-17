@@ -356,6 +356,7 @@ app.post('/', async (req, res) => {
                 const result = await generativeModel.generateContent({ contents: [{ role: 'user', parts: [{ text: userInput }] }] });
                 const response = result.response;
                 const geminiText = response.candidates[0].content.parts[0].text;
+                const twiml = new MessagingResponse();
 
                 // Monta a resposta completa
                 const fullResponse = `${geminiText}\n\nPodemos voltar para a sua cotação agora? (responda 'sim' para continuar)`;
