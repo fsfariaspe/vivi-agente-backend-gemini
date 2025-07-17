@@ -377,15 +377,6 @@ app.post('/', async (req, res) => {
                 const dialogflowRequest = twilioToDetectIntent(req);
                 const [dialogflowResponse] = await dialogflowClient.detectIntent(dialogflowRequest);
 
-                // ▼▼▼ CORREÇÃO APLICADA AQUI ▼▼▼
-                // Chama a função e envia o resultado TwiML diretamente
-                const twimlResponse = detectIntentToTwilio(dialogflowResponse);
-
-                const responseTextForContext = twimlResponse.toString(); // Apenas para guardar no contexto
-                if (responseTextForContext) {
-                    flowContext[sessionId] = { lastBotQuestion: responseTextForContext };
-                }
-
                 // A verificação de fim de fluxo deve ser feita antes de enviar a resposta
                 // ... (esta parte do código pode ser reavaliada se o erro persistir)
                 const customPayload = dialogflowResponse.queryResult.responseMessages.find(m => m.payload?.fields?.flow_status);
@@ -398,6 +389,17 @@ app.post('/', async (req, res) => {
                         delete flowContext[sessionId];
                     }
                 }
+
+                // ▼▼▼ CORREÇÃO APLICADA AQUI ▼▼▼
+                // Chama a função e envia o resultado TwiML diretamente
+                const twimlResponse = detectIntentToTwilio(dialogflowResponse);
+
+                const responseTextForContext = twimlResponse.toString(); // Apenas para guardar no contexto
+                if (responseTextForContext) {
+                    flowContext[sessionId] = { lastBotQuestion: responseTextForContext };
+                }
+
+
 
                 // Envia a resposta TwiML para a Twilio
                 return res.type('text/xml').send(twimlResponse.toString());
