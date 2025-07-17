@@ -356,20 +356,17 @@ app.post('/', async (req, res) => {
                 const result = await generativeModel.generateContent({ contents: [{ role: 'user', parts: [{ text: userInput }] }] });
                 const response = result.response;
                 const geminiText = response.candidates[0].content.parts[0].text;
-                const twiml = new MessagingResponse();
 
-                // Monta a resposta completa
                 const fullResponse = `${geminiText}\n\nPodemos voltar para a sua cotação agora? (responda 'sim' para continuar)`;
 
                 // ▼▼▼ CORREÇÃO APLICADA AQUI ▼▼▼
-                // Usa a função para dividir a resposta em partes seguras para o WhatsApp
+                // Prepara o TwiML e o envia imediatamente, encerrando a função com 'return'.
+                const twiml = new MessagingResponse();
                 const messageChunks = splitMessage(fullResponse);
-
-                // Adiciona cada parte como uma mensagem separada no TwiML
                 messageChunks.forEach(chunk => twiml.message(chunk));
 
-                // Define a variável 'responseToSend' como vazia, pois já preenchemos o twiml
-                responseToSend = "";
+                // Envia a resposta e para a execução para evitar o erro 11200
+                return res.type('text/xml').send(twiml.toString());
             } else {
                 console.log('Não é pergunta genérica. Enviando para o Dialogflow...');
                 const dialogflowRequest = twilioToDetectIntent(req);
