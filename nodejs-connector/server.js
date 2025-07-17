@@ -197,22 +197,21 @@ const twilioToDetectIntent = (req, textOverride = null, extraParams = {}) => {
 };
 
 const detectIntentToTwilio = (dialogflowResponse) => {
+    // ▼▼▼ LÓGICA ANTIGA E CORRETA RESTAURADA ▼▼▼
+    // Junta todas as pequenas mensagens do Dialogflow em um único texto,
+    // separado por quebras de linha, para formar um único balão de mensagem.
     const replies = (dialogflowResponse.queryResult.responseMessages || [])
         .filter(msg => msg.text && msg.text.text && msg.text.text.length > 0)
-        .map(msg => msg.text.text.join('\n'));
+        .map(msg => msg.text.text.join('\n'))
+        .join('\n'); // <--- A mudança principal é usar join() aqui
 
     const twiml = new MessagingResponse();
 
-    // ▼▼▼ CORREÇÃO APLICADA AQUI ▼▼▼
-    // Garante que, mesmo que não haja texto, a resposta seja válida.
-    // Se houver mensagens, envia cada uma em um balão separado.
-    if (replies.length > 0) {
-        replies.forEach(replyText => {
-            twiml.message(replyText);
-        });
+    if (replies) {
+        twiml.message(replies);
     }
 
-    return twiml; // Retorna o objeto TwiML, mesmo que esteja vazio
+    return twiml;
 };
 
 // Função para chamar o Dialogflow com um evento e um parâmetro
