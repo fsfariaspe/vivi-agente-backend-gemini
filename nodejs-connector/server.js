@@ -197,16 +197,22 @@ const twilioToDetectIntent = (req, textOverride = null, extraParams = {}) => {
 };
 
 const detectIntentToTwilio = (dialogflowResponse) => {
-    const replies = dialogflowResponse.queryResult.responseMessages
-        .filter(responseMessage => responseMessage.text)
-        .map(responseMessage => responseMessage.text.text.join('\n'))
-        .join('\n');
+    const replies = (dialogflowResponse.queryResult.responseMessages || [])
+        .filter(msg => msg.text && msg.text.text && msg.text.text.length > 0)
+        .map(msg => msg.text.text.join('\n'));
 
     const twiml = new MessagingResponse();
-    if (replies) {
-        twiml.message(replies);
+
+    // ▼▼▼ CORREÇÃO APLICADA AQUI ▼▼▼
+    // Garante que, mesmo que não haja texto, a resposta seja válida.
+    // Se houver mensagens, envia cada uma em um balão separado.
+    if (replies.length > 0) {
+        replies.forEach(replyText => {
+            twiml.message(replyText);
+        });
     }
-    return twiml;
+
+    return twiml; // Retorna o objeto TwiML, mesmo que esteja vazio
 };
 
 // Função para chamar o Dialogflow com um evento e um parâmetro
@@ -371,16 +377,18 @@ app.post('/', async (req, res) => {
                 console.log('Não é pergunta genérica. Enviando para o Dialogflow...');
                 const dialogflowRequest = twilioToDetectIntent(req);
                 const [dialogflowResponse] = await dialogflowClient.detectIntent(dialogflowRequest);
-                const twimlResponse = detectIntentToTwilio(dialogflowResponse);
-                responseToSend = (dialogflowResponse.queryResult.responseMessages || [])
-                    .filter(m => m.text && m.text.text.length > 0)
-                    .map(m => m.text.text.join('\n'))
-                    .join('\n');
 
-                if (responseToSend) {
-                    flowContext[sessionId] = { lastBotQuestion: responseToSend };
+                // ▼▼▼ CORREÇÃO APLICADA AQUI ▼▼▼
+                // Chama a função e envia o resultado TwiML diretamente
+                const twimlResponse = detectIntentToTwilio(dialogflowResponse);
+
+                const responseTextForContext = twimlResponse.toString(); // Apenas para guardar no contexto
+                if (responseTextForContext) {
+                    flowContext[sessionId] = { lastBotQuestion: responseTextForContext };
                 }
 
+                // A verificação de fim de fluxo deve ser feita antes de enviar a resposta
+                // ... (esta parte do código pode ser reavaliada se o erro persistir)
                 const customPayload = dialogflowResponse.queryResult.responseMessages.find(m => m.payload?.fields?.flow_status);
                 if (customPayload) {
                     const flowStatus = customPayload.payload.fields.flow_status.stringValue;
@@ -391,6 +399,9 @@ app.post('/', async (req, res) => {
                         delete flowContext[sessionId];
                     }
                 }
+
+                // Envia a resposta TwiML para a Twilio
+                return res.type('text/xml').send(twimlResponse.toString());
             }
 
             // ESTADO: IA - Conversa aberta, decidindo o que fazer
