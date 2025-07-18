@@ -302,16 +302,12 @@ app.post('/', async (req, res) => {
                 console.log('Usuário confirmou o retorno ao fluxo.');
                 conversationState[sessionId] = 'in_flow';
 
-                // Pega os parâmetros que podem ter sido capturados durante a pausa
-                const newParams = flowContext[sessionId]?.newlyCapturedParams || {};
+                // ▼▼▼ CORREÇÃO APLICADA AQUI (1/2) ▼▼▼
+                // Pega TODOS os parâmetros guardados, não apenas os novos.
+                const allParams = flowContext[sessionId]?.parameters || {};
 
-                // ▼▼▼ CORREÇÃO APLICADA AQUI ▼▼▼
-                // Reenvia a ÚLTIMA MENSAGEM do usuário para o Dialogflow, 
-                // mas agora com os NOVOS PARÂMETROS que a IA extraiu.
-                const lastUserInput = flowContext[sessionId]?.lastUserInput || "continuar";
-                const dialogflowRequest = twilioToDetectIntent(req, lastUserInput, newParams); // Usando uma versão modificada da sua função
-
-                const [dialogflowResponse] = await dialogflowClient.detectIntent(dialogflowRequest);
+                // Dispara um evento para o Dialogflow se reativar, passando os parâmetros combinados.
+                const dialogflowResponse = await triggerDialogflowEvent('resume_flow', sessionId, allParams.produto_escolhido, allParams);
 
                 responseToSend = (dialogflowResponse.queryResult.responseMessages || [])
                     .filter(m => m.text && m.text.text.length > 0)
@@ -323,10 +319,8 @@ app.post('/', async (req, res) => {
                 }
 
             } else {
-                // Guarda a pergunta do usuário para reprocessar depois
-                flowContext[sessionId].lastUserInput = userInput;
-
                 console.log('IA responde enquanto fluxo está pausado...');
+                // ... (a parte que chama a IA e o extractionPrompt continua a mesma) ...
                 const chat = generativeModel.startChat({ history: conversationHistory[sessionId] });
                 const result = await chat.sendMessage(userInput);
                 const geminiText = (await result.response).candidates[0].content.parts[0].text;
@@ -339,9 +333,14 @@ app.post('/', async (req, res) => {
                 try {
                     const jsonMatch = extractedParamsText.match(/\{[\s\S]*\}/);
                     if (jsonMatch) {
-                        const extractedParams = JSON.parse(jsonMatch[0]);
-                        flowContext[sessionId].newlyCapturedParams = extractedParams;
-                        console.log('Parâmetros extraídos durante a pausa:', extractedParams);
+                        const newlyCapturedParams = JSON.parse(jsonMatch[0]);
+
+                        // ▼▼▼ CORREÇÃO APLICADA AQUI (2/2) ▼▼▼
+                        // Combina os parâmetros antigos com os novos capturados.
+                        const existingParams = flowContext[sessionId]?.parameters || {};
+                        flowContext[sessionId].parameters = { ...existingParams, ...newlyCapturedParams };
+
+                        console.log('Parâmetros atualizados durante a pausa:', flowContext[sessionId].parameters);
                     }
                 } catch (e) {
                     console.error("Não foi possível analisar os parâmetros extraídos.");
@@ -371,7 +370,7 @@ app.post('/', async (req, res) => {
                 messageChunks.forEach(chunk => twiml.message(chunk));
 
                 // Envia a resposta e para a execução para evitar o erro 11200
-                return res.type('text/xml').send(twiml.toString());
+                //return res.type('text/xml').send(twiml.toString());
             } else {
                 console.log('Não é pergunta genérica. Enviando para o Dialogflow...');
                 const dialogflowRequest = twilioToDetectIntent(req);
