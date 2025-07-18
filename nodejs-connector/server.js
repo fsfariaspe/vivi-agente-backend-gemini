@@ -321,8 +321,9 @@ app.post('/', async (req, res) => {
             } else {
                 console.log('IA responde enquanto fluxo está pausado...');
                 // ... (a parte que chama a IA e o extractionPrompt continua a mesma) ...
-                const chat = generativeModel.startChat({ history: conversationHistory[sessionId] });
-                const result = await chat.sendMessage(userInput);
+                //const chat = generativeModel.startChat({ history: conversationHistory[sessionId] });
+                //const result = await chat.sendMessage(userInput);
+                const result = await generativeModel.generateContent({ contents: [{ role: 'user', parts: [{ text: userInput }] }] });
                 const geminiText = (await result.response).candidates[0].content.parts[0].text;
 
                 console.log('Analisando a resposta para extrair parâmetros...');
