@@ -360,7 +360,8 @@ app.post('/', async (req, res) => {
             // ESTADO: EM FLUXO - Interagindo com o Dialogflow
         } else if (conversationState[sessionId] === 'in_flow') {
 
-            console.log('Usuário acabou de entrar no bloco in_flow.');
+            let responseToSend; // << DECLARA A VARIÁVEL NO ESCOPO CORRETO
+
             if (isGenericQuestion(userInput)) {
                 console.log('Pergunta genérica detectada. Pausando fluxo e acionando IA...');
                 conversationState[sessionId] = 'paused';
@@ -369,23 +370,28 @@ app.post('/', async (req, res) => {
                 const response = result.response;
                 const geminiText = response.candidates[0].content.parts[0].text;
 
-                const fullResponse = `${geminiText}\n\nPodemos voltar para a sua cotação agora? (responda 'sim' para continuar)`;
+                responseToSend = `${geminiText}\n\nPodemos voltar para a sua cotação agora? (responda 'sim' para continuar)`;
 
                 // ▼▼▼ CORREÇÃO APLICADA AQUI ▼▼▼
                 // Prepara o TwiML e o envia imediatamente, encerrando a função com 'return'.
                 const twiml = new MessagingResponse();
-                const messageChunks = splitMessage(fullResponse);
+                const messageChunks = splitMessage(responseToSend);
                 messageChunks.forEach(chunk => twiml.message(chunk));
 
-                // Envia a resposta e para a execução para evitar o erro 11200
-                return res.type('text/xml').send(twiml.toString());
             } else {
                 console.log('Não é pergunta genérica. Enviando para o Dialogflow...');
                 const dialogflowRequest = twilioToDetectIntent(req);
                 const [dialogflowResponse] = await dialogflowClient.detectIntent(dialogflowRequest);
 
-                // A verificação de fim de fluxo deve ser feita antes de enviar a resposta
-                // ... (esta parte do código pode ser reavaliada se o erro persistir)
+                responseToSend = (dialogflowResponse.queryResult.responseMessages || [])
+                    .filter(m => m.text && m.text.text.length > 0)
+                    .map(m => m.text.text.join('\n'))
+                    .join('\n');
+
+                if (responseToSend) {
+                    flowContext[sessionId] = { lastBotQuestion: responseToSend };
+                }
+
                 const customPayload = dialogflowResponse.queryResult.responseMessages.find(m => m.payload?.fields?.flow_status);
                 if (customPayload) {
                     const flowStatus = customPayload.payload.fields.flow_status.stringValue;
@@ -396,21 +402,16 @@ app.post('/', async (req, res) => {
                         delete flowContext[sessionId];
                     }
                 }
-
-                // ▼▼▼ CORREÇÃO APLICADA AQUI ▼▼▼
-                // Chama a função e envia o resultado TwiML diretamente
-                const twimlResponse = detectIntentToTwilio(dialogflowResponse);
-
-                const responseTextForContext = twimlResponse.toString(); // Apenas para guardar no contexto
-                if (responseTextForContext) {
-                    flowContext[sessionId] = { lastBotQuestion: responseTextForContext };
-                }
-
-
-
-                // Envia a resposta TwiML para a Twilio
-                return res.type('text/xml').send(twimlResponse.toString());
             }
+
+            // ▼▼▼ CORREÇÃO APLICADA AQUI ▼▼▼
+            // O bloco de envio da resposta agora está DENTRO do estado 'in_flow'
+            // para garantir que ele sempre execute após uma das lógicas acima.
+            const twiml = new MessagingResponse();
+            if (responseToSend) {
+                twiml.message(responseToSend);
+            }
+            return res.type('text/xml').send(twiml.toString());
 
             // ESTADO: IA - Conversa aberta, decidindo o que fazer
         } else {
