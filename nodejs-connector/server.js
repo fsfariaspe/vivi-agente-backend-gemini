@@ -302,12 +302,16 @@ app.post('/', async (req, res) => {
                 console.log('Usuário confirmou o retorno ao fluxo.');
                 conversationState[sessionId] = 'in_flow';
 
-                // ▼▼▼ CORREÇÃO APLICADA AQUI (1/2) ▼▼▼
-                // Pega TODOS os parâmetros guardados, não apenas os novos.
-                const allParams = flowContext[sessionId]?.parameters || {};
+                // Pega os parâmetros que podem ter sido capturados durante a pausa
+                const newParams = flowContext[sessionId]?.newlyCapturedParams || {};
 
-                // Dispara um evento para o Dialogflow se reativar, passando os parâmetros combinados.
-                const dialogflowResponse = await triggerDialogflowEvent('resume_flow', sessionId, allParams.produto_escolhido, allParams);
+                // ▼▼▼ CORREÇÃO APLICADA AQUI ▼▼▼
+                // Reenvia a ÚLTIMA MENSAGEM do usuário para o Dialogflow, 
+                // mas agora com os NOVOS PARÂMETROS que a IA extraiu.
+                const lastUserInput = flowContext[sessionId]?.lastUserInput || "continuar";
+                const dialogflowRequest = twilioToDetectIntent(req, lastUserInput, newParams); // Usando uma versão modificada da sua função
+
+                const [dialogflowResponse] = await dialogflowClient.detectIntent(dialogflowRequest);
 
                 responseToSend = (dialogflowResponse.queryResult.responseMessages || [])
                     .filter(m => m.text && m.text.text.length > 0)
@@ -319,6 +323,9 @@ app.post('/', async (req, res) => {
                 }
 
             } else {
+                // Guarda a pergunta do usuário para reprocessar depois
+                flowContext[sessionId].lastUserInput = userInput;
+
                 console.log('IA responde enquanto fluxo está pausado...');
 
                 // ▼▼▼ CORREÇÃO APLICADA AQUI ▼▼▼
@@ -326,7 +333,28 @@ app.post('/', async (req, res) => {
                 const result = await generativeModel.generateContent({ contents: [{ role: 'user', parts: [{ text: userInput }] }] });
                 const geminiText = (await result.response).candidates[0].content.parts[0].text;
 
-                responseToSend = `${geminiText}\n\nQuando quiser, me diga 'sim' para continuarmos a cotação.`;
+                console.log('Analisando a resposta para extrair parâmetros...');
+                const extractionPrompt = `Analise a seguinte conversa. O usuário disse: "${userInput}" e a IA respondeu: "${geminiText}". Extraia qualquer parâmetro relevante (person, origem, destino, etc.) e retorne APENAS um objeto JSON.`;
+                const extractionResult = await generativeModel.generateContent(extractionPrompt);
+                const extractedParamsText = (await extractionResult.response).candidates[0].content.parts[0].text;
+
+                try {
+                    const jsonMatch = extractedParamsText.match(/\{[\s\S]*\}/);
+                    if (jsonMatch) {
+                        const newlyCapturedParams = JSON.parse(jsonMatch[0]);
+
+                        // ▼▼▼ CORREÇÃO APLICADA AQUI (2/2) ▼▼▼
+                        // Combina os parâmetros antigos com os novos capturados.
+                        const existingParams = flowContext[sessionId]?.parameters || {};
+                        flowContext[sessionId].parameters = { ...existingParams, ...newlyCapturedParams };
+
+                        console.log('Parâmetros atualizados durante a pausa:', flowContext[sessionId].parameters);
+                    }
+                } catch (e) {
+                    console.error("Não foi possível analisar os parâmetros extraídos.");
+                }
+
+                responseToSend = `${geminiText}\n\nPodemos voltar para a sua cotação agora? (responda 'sim' para continuar)`;
             }
 
             // ESTADO: EM FLUXO - Interagindo com o Dialogflow
@@ -350,7 +378,7 @@ app.post('/', async (req, res) => {
                 messageChunks.forEach(chunk => twiml.message(chunk));
 
                 // Envia a resposta e para a execução para evitar o erro 11200
-                //return res.type('text/xml').send(twiml.toString());
+                return res.type('text/xml').send(twiml.toString());
             } else {
                 console.log('Não é pergunta genérica. Enviando para o Dialogflow...');
                 const dialogflowRequest = twilioToDetectIntent(req);
