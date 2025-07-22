@@ -370,13 +370,10 @@ app.post('/', async (req, res) => {
                 const response = result.response;
                 const geminiText = response.candidates[0].content.parts[0].text;
 
-                responseToSend = `${geminiText}\n\nPodemos voltar para a sua cotação agora? (responda 'sim' para continuar)`;
-
                 // ▼▼▼ CORREÇÃO APLICADA AQUI ▼▼▼
-                // Prepara o TwiML e o envia imediatamente, encerrando a função com 'return'.
-                const twiml = new MessagingResponse();
-                const messageChunks = splitMessage(responseToSend);
-                messageChunks.forEach(chunk => twiml.message(chunk));
+                // Apenas prepara a variável 'responseToSend'. A resposta será formatada
+                // e enviada pelo bloco final, garantindo que o 'splitMessage' seja usado.
+                responseToSend = `${geminiText}\n\nPodemos voltar para a sua cotação agora? (responda 'sim' para continuar)`;
 
             } else {
                 console.log('Não é pergunta genérica. Enviando para o Dialogflow...');
