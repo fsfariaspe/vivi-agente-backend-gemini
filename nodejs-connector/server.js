@@ -27,7 +27,7 @@ Seu objetivo é conversar com o usuário para entender suas necessidades de viag
 Quando você identificar que o usuário está pronto para fazer uma cotação e você precisa coletar informações estruturadas (como origem, destino, datas, etc.), sua tarefa é avisá-lo que você vai iniciar a coleta de dados e, em seguida, retornar um comando especial para o sistema.
 
 **Regras de Resposta:**
-0.  **Regra de Ouro:** Todas as suas respostas devem ser concisas e amigáveis, porém NÃO PODEM ultrapassar 1500 caracteres para garantir uma boa leitura no WhatsApp.
+0.  **Regra de Ouro:** Todas as suas respostas devem ser concisas e amigáveis, idealmente com menos de 500 caracteres para garantir uma boa leitura no WhatsApp.
 1.  **Conversa Natural:** Converse normalmente com o usuário.
 2.  **Seja Decisiva:** Se o usuário expressar um desejo claro de obter uma cotação (usando palavras como "cotar", "preço", "quanto custa"), você DEVE retornar o JSON de ação imediatamente.
 3.  **Extrair Parâmetros:** Analise a frase do usuário e extraia qualquer informação que corresponda aos seguintes parâmetros: 
@@ -173,44 +173,43 @@ function splitMessage(text, limit = 1600) {
 
 // --- FUNÇÕES AUXILIARES (CORRIGIDAS E PRESENTES) ---
 
-const twilioToDetectIntent = (req, textOverride = null, extraParams = {}) => {
+const twilioToDetectIntent = (req) => {
     const sessionId = req.body.From.replace('whatsapp:', '');
-    const sessionPath = dialogflowClient.projectLocationAgentSessionPath(process.env.PROJECT_ID, 'us-central1', process.env.AGENT_ID, sessionId);
-
-    const allParams = { ...extraParams };
-    allParams['source'] = 'WHATSAPP';
-
-    const fields = {};
-    for (const key in allParams) {
-        fields[key] = { stringValue: String(allParams[key]), kind: 'stringValue' };
-    }
+    const sessionPath = dialogflowClient.projectLocationAgentSessionPath(
+        process.env.PROJECT_ID, 'us-central1', process.env.AGENT_ID, sessionId
+    );
 
     const request = {
         session: sessionPath,
         queryInput: {
-            text: { text: textOverride || req.body.Body },
+            text: { text: req.body.Body },
             languageCode: process.env.LANGUAGE_CODE,
         },
-        queryParams: { parameters: { fields } }
+        // ▼▼▼ GARANTINDO QUE O PARÂMETRO DE ORIGEM SEJA ENVIADO ▼▼▼
+        queryParams: {
+            parameters: {
+                fields: {
+                    source: {
+                        stringValue: 'WHATSAPP',
+                        kind: 'stringValue'
+                    }
+                }
+            }
+        }
     };
     return request;
 };
 
 const detectIntentToTwilio = (dialogflowResponse) => {
-    // ▼▼▼ LÓGICA ANTIGA E CORRETA RESTAURADA ▼▼▼
-    // Junta todas as pequenas mensagens do Dialogflow em um único texto,
-    // separado por quebras de linha, para formar um único balão de mensagem.
-    const replies = (dialogflowResponse.queryResult.responseMessages || [])
-        .filter(msg => msg.text && msg.text.text && msg.text.text.length > 0)
-        .map(msg => msg.text.text.join('\n'))
-        .join('\n'); // <--- A mudança principal é usar join() aqui
+    const replies = dialogflowResponse.queryResult.responseMessages
+        .filter(responseMessage => responseMessage.text)
+        .map(responseMessage => responseMessage.text.text.join('\n'))
+        .join('\n');
 
     const twiml = new MessagingResponse();
-
     if (replies) {
         twiml.message(replies);
     }
-
     return twiml;
 };
 
@@ -261,7 +260,6 @@ app.post('/', async (req, res) => {
     if (!conversationState[sessionId]) conversationState[sessionId] = 'ia';
 
     let responseToSend = "";
-    let shouldUpdateHistory = true;
 
 
     try {
@@ -327,10 +325,8 @@ app.post('/', async (req, res) => {
                 flowContext[sessionId].lastUserInput = userInput;
 
                 console.log('IA responde enquanto fluxo está pausado...');
-
-                // ▼▼▼ CORREÇÃO APLICADA AQUI ▼▼▼
-                // Voltamos a usar 'generateContent' para uma resposta rápida, sem histórico.
-                const result = await generativeModel.generateContent({ contents: [{ role: 'user', parts: [{ text: userInput }] }] });
+                const chat = generativeModel.startChat({ history: conversationHistory[sessionId] });
+                const result = await chat.sendMessage(userInput);
                 const geminiText = (await result.response).candidates[0].content.parts[0].text;
 
                 console.log('Analisando a resposta para extrair parâmetros...');
@@ -341,14 +337,9 @@ app.post('/', async (req, res) => {
                 try {
                     const jsonMatch = extractedParamsText.match(/\{[\s\S]*\}/);
                     if (jsonMatch) {
-                        const newlyCapturedParams = JSON.parse(jsonMatch[0]);
-
-                        // ▼▼▼ CORREÇÃO APLICADA AQUI (2/2) ▼▼▼
-                        // Combina os parâmetros antigos com os novos capturados.
-                        const existingParams = flowContext[sessionId]?.parameters || {};
-                        flowContext[sessionId].parameters = { ...existingParams, ...newlyCapturedParams };
-
-                        console.log('Parâmetros atualizados durante a pausa:', flowContext[sessionId].parameters);
+                        const extractedParams = JSON.parse(jsonMatch[0]);
+                        flowContext[sessionId].newlyCapturedParams = extractedParams;
+                        console.log('Parâmetros extraídos durante a pausa:', extractedParams);
                     }
                 } catch (e) {
                     console.error("Não foi possível analisar os parâmetros extraídos.");
@@ -359,43 +350,35 @@ app.post('/', async (req, res) => {
 
             // ESTADO: EM FLUXO - Interagindo com o Dialogflow
         } else if (conversationState[sessionId] === 'in_flow') {
+
+            console.log('Usuário acabou de entrar no bloco in_flow.');
             if (isGenericQuestion(userInput)) {
                 console.log('Pergunta genérica detectada. Pausando fluxo e acionando IA...');
-                conversationState[sessionId] = 'paused';
+                conversationState[sessionId] = 'paused'; // PAUSA o fluxo
 
+                // ▼▼▼ CORREÇÃO APLICADA AQUI ▼▼▼
                 const result = await generativeModel.generateContent({ contents: [{ role: 'user', parts: [{ text: userInput }] }] });
                 const response = result.response;
                 const geminiText = response.candidates[0].content.parts[0].text;
+                // ▲▲▲ FIM DA CORREÇÃO ▲▲▲
 
-                const fullResponse = `${geminiText}\n\nPodemos voltar para a sua cotação agora? (responda 'sim' para continuar)`;
-
-                const twiml = new MessagingResponse();
-                const messageChunks = splitMessage(fullResponse);
-                messageChunks.forEach(chunk => twiml.message(chunk));
-
-                return res.type('text/xml').send(twiml.toString());
+                // Monta a resposta da IA + a pergunta de retomada.
+                responseToSend = `${geminiText}\n\nPodemos voltar para a sua cotação agora? (responda 'sim' para continuar)`;
 
             } else {
                 console.log('Não é pergunta genérica. Enviando para o Dialogflow...');
                 const dialogflowRequest = twilioToDetectIntent(req);
                 const [dialogflowResponse] = await dialogflowClient.detectIntent(dialogflowRequest);
-
-                // ▼▼▼ CORREÇÃO APLICADA AQUI ▼▼▼
-                // Extrai a resposta de texto do Dialogflow de forma segura
-                const responseToSend = (dialogflowResponse.queryResult.responseMessages || [])
-                    .filter(m => m.text && m.text.text && m.text.text.length > 0)
+                const twimlResponse = detectIntentToTwilio(dialogflowResponse);
+                responseToSend = (dialogflowResponse.queryResult.responseMessages || [])
+                    .filter(m => m.text && m.text.text.length > 0)
                     .map(m => m.text.text.join('\n'))
                     .join('\n');
 
-                // Prepara a resposta TwiML
-                const twiml = new MessagingResponse();
                 if (responseToSend) {
-                    twiml.message(responseToSend);
-                    // Guarda a pergunta atual do bot para a lógica de pausa
                     flowContext[sessionId] = { lastBotQuestion: responseToSend };
                 }
 
-                // Verifica se o fluxo terminou para resetar o estado
                 const customPayload = dialogflowResponse.queryResult.responseMessages.find(m => m.payload?.fields?.flow_status);
                 if (customPayload) {
                     const flowStatus = customPayload.payload.fields.flow_status.stringValue;
@@ -406,9 +389,6 @@ app.post('/', async (req, res) => {
                         delete flowContext[sessionId];
                     }
                 }
-
-                // Envia a resposta imediatamente e encerra a função para evitar timeout
-                return res.type('text/xml').send(twiml.toString());
             }
 
             // ESTADO: IA - Conversa aberta, decidindo o que fazer
@@ -476,20 +456,11 @@ app.post('/', async (req, res) => {
             conversationHistory[sessionId].push({ role: "model", parts: [{ text: responseToSend }] });
         }
 
+        // ▼▼▼ LÓGICA DE ENVIO ATUALIZADA ▼▼▼
         const twiml = new MessagingResponse();
         if (responseToSend) {
-            // Verifica se a mensagem é o resumo final
-            const isSummaryMessage = responseToSend.includes("confirme se os dados para sua cotação estão corretos");
-
-            if (isSummaryMessage) {
-                // Se for o resumo, envia a mensagem inteira em um único balão.
-                console.log('Mensagem de resumo detectada. Enviando sem dividir.');
-                twiml.message(responseToSend);
-            } else {
-                // Para todas as outras mensagens, usa a função para dividir em múltiplos balões.
-                const messageChunks = splitMessage(responseToSend);
-                messageChunks.forEach(chunk => twiml.message(chunk));
-            }
+            const messageChunks = splitMessage(responseToSend);
+            messageChunks.forEach(chunk => twiml.message(chunk));
         }
 
         res.type('text/xml').send(twiml.toString());
