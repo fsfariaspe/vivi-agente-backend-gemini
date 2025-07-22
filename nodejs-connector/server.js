@@ -320,34 +320,13 @@ app.post('/', async (req, res) => {
 
             } else {
                 console.log('IA responde enquanto fluxo está pausado...');
-                // ... (a parte que chama a IA e o extractionPrompt continua a mesma) ...
-                //const chat = generativeModel.startChat({ history: conversationHistory[sessionId] });
-                //const result = await chat.sendMessage(userInput);
+
+                // ▼▼▼ CORREÇÃO APLICADA AQUI ▼▼▼
+                // Voltamos a usar 'generateContent' para uma resposta rápida, sem histórico.
                 const result = await generativeModel.generateContent({ contents: [{ role: 'user', parts: [{ text: userInput }] }] });
                 const geminiText = (await result.response).candidates[0].content.parts[0].text;
 
-                console.log('Analisando a resposta para extrair parâmetros...');
-                const extractionPrompt = `Analise a seguinte conversa. O usuário disse: "${userInput}" e a IA respondeu: "${geminiText}". Extraia qualquer parâmetro relevante (person, origem, destino, etc.) e retorne APENAS um objeto JSON.`;
-                const extractionResult = await generativeModel.generateContent(extractionPrompt);
-                const extractedParamsText = (await extractionResult.response).candidates[0].content.parts[0].text;
-
-                try {
-                    const jsonMatch = extractedParamsText.match(/\{[\s\S]*\}/);
-                    if (jsonMatch) {
-                        const newlyCapturedParams = JSON.parse(jsonMatch[0]);
-
-                        // ▼▼▼ CORREÇÃO APLICADA AQUI (2/2) ▼▼▼
-                        // Combina os parâmetros antigos com os novos capturados.
-                        const existingParams = flowContext[sessionId]?.parameters || {};
-                        flowContext[sessionId].parameters = { ...existingParams, ...newlyCapturedParams };
-
-                        console.log('Parâmetros atualizados durante a pausa:', flowContext[sessionId].parameters);
-                    }
-                } catch (e) {
-                    console.error("Não foi possível analisar os parâmetros extraídos.");
-                }
-
-                responseToSend = `${geminiText}\n\nPodemos voltar para a sua cotação agora? (responda 'sim' para continuar)`;
+                responseToSend = `${geminiText}\n\nQuando quiser, me diga 'sim' para continuarmos a cotação.`;
             }
 
             // ESTADO: EM FLUXO - Interagindo com o Dialogflow
