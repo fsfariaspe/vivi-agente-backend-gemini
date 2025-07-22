@@ -367,36 +367,35 @@ app.post('/', async (req, res) => {
                 const response = result.response;
                 const geminiText = response.candidates[0].content.parts[0].text;
 
-                // ▼▼▼ CORREÇÃO APLICADA AQUI ▼▼▼
-                // A variável 'responseToSend' é preparada para o histórico.
-                responseToSend = `${geminiText}\n\nPodemos voltar para a sua cotação agora? (responda 'sim' para continuar)`;
+                const fullResponse = `${geminiText}\n\nPodemos voltar para a sua cotação agora? (responda 'sim' para continuar)`;
 
-                // O objeto TwiML é criado e a resposta é adicionada a ele para ser enviada.
                 const twiml = new MessagingResponse();
-                twiml.message(responseToSend);
+                const messageChunks = splitMessage(fullResponse);
+                messageChunks.forEach(chunk => twiml.message(chunk));
 
-                // O histórico é atualizado ANTES de a resposta ser enviada.
-                conversationHistory[sessionId].push({ role: "user", parts: [{ text: userInput }] });
-                conversationHistory[sessionId].push({ role: "model", parts: [{ text: responseToSend }] });
-
-                // A resposta é enviada e a execução é encerrada com 'return'.
                 return res.type('text/xml').send(twiml.toString());
 
             } else {
-                // Se não for uma pergunta, a lógica para continuar o fluxo (que já está correta) é executada.
                 console.log('Não é pergunta genérica. Enviando para o Dialogflow...');
                 const dialogflowRequest = twilioToDetectIntent(req);
                 const [dialogflowResponse] = await dialogflowClient.detectIntent(dialogflowRequest);
 
-                responseToSend = (dialogflowResponse.queryResult.responseMessages || [])
-                    .filter(m => m.text && m.text.text.length > 0)
+                // ▼▼▼ CORREÇÃO APLICADA AQUI ▼▼▼
+                // Extrai a resposta de texto do Dialogflow de forma segura
+                const responseToSend = (dialogflowResponse.queryResult.responseMessages || [])
+                    .filter(m => m.text && m.text.text && m.text.text.length > 0)
                     .map(m => m.text.text.join('\n'))
                     .join('\n');
 
+                // Prepara a resposta TwiML
+                const twiml = new MessagingResponse();
                 if (responseToSend) {
+                    twiml.message(responseToSend);
+                    // Guarda a pergunta atual do bot para a lógica de pausa
                     flowContext[sessionId] = { lastBotQuestion: responseToSend };
                 }
 
+                // Verifica se o fluxo terminou para resetar o estado
                 const customPayload = dialogflowResponse.queryResult.responseMessages.find(m => m.payload?.fields?.flow_status);
                 if (customPayload) {
                     const flowStatus = customPayload.payload.fields.flow_status.stringValue;
@@ -407,16 +406,10 @@ app.post('/', async (req, res) => {
                         delete flowContext[sessionId];
                     }
                 }
-            }
 
-            // ▼▼▼ CORREÇÃO APLICADA AQUI ▼▼▼
-            // O bloco de envio da resposta agora está DENTRO do estado 'in_flow'
-            // para garantir que ele sempre execute após uma das lógicas acima.
-            const twiml = new MessagingResponse();
-            if (responseToSend) {
-                twiml.message(responseToSend);
+                // Envia a resposta imediatamente e encerra a função para evitar timeout
+                return res.type('text/xml').send(twiml.toString());
             }
-            return res.type('text/xml').send(twiml.toString());
 
             // ESTADO: IA - Conversa aberta, decidindo o que fazer
         } else {
