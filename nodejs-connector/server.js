@@ -359,9 +359,6 @@ app.post('/', async (req, res) => {
 
             // ESTADO: EM FLUXO - Interagindo com o Dialogflow
         } else if (conversationState[sessionId] === 'in_flow') {
-
-            let responseToSend; // << DECLARA A VARIÁVEL NO ESCOPO CORRETO
-
             if (isGenericQuestion(userInput)) {
                 console.log('Pergunta genérica detectada. Pausando fluxo e acionando IA...');
                 conversationState[sessionId] = 'paused';
@@ -371,11 +368,22 @@ app.post('/', async (req, res) => {
                 const geminiText = response.candidates[0].content.parts[0].text;
 
                 // ▼▼▼ CORREÇÃO APLICADA AQUI ▼▼▼
-                // Apenas prepara a variável 'responseToSend'. A resposta será formatada
-                // e enviada pelo bloco final, garantindo que o 'splitMessage' seja usado.
+                // A variável 'responseToSend' é preparada para o histórico.
                 responseToSend = `${geminiText}\n\nPodemos voltar para a sua cotação agora? (responda 'sim' para continuar)`;
 
+                // O objeto TwiML é criado e a resposta é adicionada a ele para ser enviada.
+                const twiml = new MessagingResponse();
+                twiml.message(responseToSend);
+
+                // O histórico é atualizado ANTES de a resposta ser enviada.
+                conversationHistory[sessionId].push({ role: "user", parts: [{ text: userInput }] });
+                conversationHistory[sessionId].push({ role: "model", parts: [{ text: responseToSend }] });
+
+                // A resposta é enviada e a execução é encerrada com 'return'.
+                return res.type('text/xml').send(twiml.toString());
+
             } else {
+                // Se não for uma pergunta, a lógica para continuar o fluxo (que já está correta) é executada.
                 console.log('Não é pergunta genérica. Enviando para o Dialogflow...');
                 const dialogflowRequest = twilioToDetectIntent(req);
                 const [dialogflowResponse] = await dialogflowClient.detectIntent(dialogflowRequest);
