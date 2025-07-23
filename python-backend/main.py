@@ -79,7 +79,7 @@ def executar_logica_negocio(dados_dialogflow):
                 "whatsapp_cliente": numero_cliente_final,
                 "tipo_viagem": "Passagem Aérea",
                 "origem_destino": f"{origem_texto} → {destino_texto}",
-                "periodo_desejado": parametros.get('periodo'),
+                "periodo_desejado": f"P_Ida: {parametros.get('periodo_voo_ida') or 'N/A'}, P_Volta: {parametros.get('periodo_voo_volta') or 'N/A'}",
                 "data_ida": data_ida_formatada,
                 "data_volta": data_volta_formatada,
                 "qtd_passageiros": f"{parametros.get('adultos_voo') or 0} adulto(s), {parametros.get('numero_criancas') or 0} criança(s)",
