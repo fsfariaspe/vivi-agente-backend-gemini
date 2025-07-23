@@ -86,7 +86,7 @@ def executar_logica_negocio(dados_dialogflow):
                 "idade_crianca": parametros.get('idade_crianca'),
                 "perfil_viagem": parametros.get('perfil_viagem'),
                 "preferencias": parametros.get('preferencias'),
-                "status": "Teste",
+                "status": "Teste Externo",
                 "data_contato": data_contato_iso
             }
             create_notion_page(dados_notion) # Ação do Notion
