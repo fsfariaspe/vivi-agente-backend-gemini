@@ -168,6 +168,13 @@ def executar_logica_negocio(dados_dialogflow):
             
         else:
             logger.warning(f"Tag '{tag}' recebida, mas sem lógica de processamento definida.")
+            # Envia mensagem de encerramento para o cliente via WhatsApp
+            client = Client(os.getenv("TWILIO_ACCOUNT_SID"), os.getenv("TWILIO_AUTH_TOKEN"))
+            client.messages.create(
+                from_=os.getenv("TWILIO_WHATSAPP_FROM"),
+                to=numero_cliente_final,
+                body="Atendimento encerrado."
+            )
 
         logger.info("✅ LÓGICA DE NEGÓCIO: Finalizada com sucesso!")
 
